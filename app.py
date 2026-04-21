@@ -2254,7 +2254,7 @@ def page(title, body, user=None, message=None, level="info", cart_count=0, auto_
   </main>
   <footer class="site-footer">
     <span>Copyright BudHub 2026</span>
-    <span>ThunderOS V 0.0.5</span>
+    <span>OS TB Nexus Kernel V 0.0.1</span>
     <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke Responsibly.</span>
   </footer>
   {render_age_gate()}
@@ -2344,7 +2344,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
   </main>
   <footer class="landing-footer">
     <span>Copyright BudHub 2026</span>
-    <span>ThunderOS V 0.0.5</span>
+    <span>OS TB Nexus Kernel V 0.0.1</span>
     <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke responsibly.</span>
   </footer>
   {render_age_gate()}
@@ -2472,7 +2472,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
       </main>
       <footer class="dashboard-footer">
         <span>Copyright BudHub 2026</span>
-        <span>ThunderOS V 0.0.5</span>
+        <span>OS TB Nexus Kernel V 0.0.1</span>
         <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke responsibly.</span>
       </footer>
     </div>
