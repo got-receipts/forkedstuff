@@ -940,7 +940,7 @@ def render_store_search(filters):
     """
 
 
-def render_cart_widget(connection, user, filters):
+def render_cart_widget(connection, user, filters, base_path="/"):
     if not user or user["role"] != "client":
         return """
         <aside class="panel cart-widget" id="bag-widget">
@@ -952,7 +952,7 @@ def render_cart_widget(connection, user, filters):
 
     items = cart_items_for_user(connection, user["id"])
     subtotal = sum(item["quantity"] * item["product_price"] for item in items)
-    return_to = store_url(filters) + "#bag-widget"
+    return_to = store_url(filters).replace("/", base_path, 1) + "#bag-widget"
     rows = []
     for item in items:
         rows.append(
@@ -2304,7 +2304,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
         <a href="#featured" data-drawer-close="yes">Featured In</a>
         <a href="#drops" data-drawer-close="yes">Available Now</a>
         <a href="#brands" data-drawer-close="yes">Brands</a>
-        <a href="#menu" data-drawer-close="yes">Live Menu</a>
+        <a href="/menu" data-drawer-close="yes">Live Menu</a>
       </nav>
     </div>
   </aside>
@@ -4559,7 +4559,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         category_counts[category] = category_counts.get(category, 0) + 1
     experience_markup = "".join(
         f"""
-        <article class="landing-experience-card">
+        <a class="landing-experience-card" href="{html.escape(store_url(filters, category=label, strain='All').replace('/', '/menu', 1))}">
           <div class="landing-experience-title">
             <img src="{landing_asset_url(icon_name)}" alt="{html.escape(label)} icon">
             <div>
@@ -4568,7 +4568,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             </div>
           </div>
           <img class="landing-experience-photo" src="{landing_asset_url(photo_name)}" alt="{html.escape(label)} category">
-        </article>
+        </a>
         """
         for label, icon_name, photo_name in experience_tiles
     )
@@ -4612,78 +4612,10 @@ def render_store_page(connection, user=None, message=None, level="info", filters
       </div>
     </div>
     """
-
-    body = f"""
-    <section class="landing-hero" id="landing-hero">
-      <div class="landing-hero-bg">
-        <img src="{landing_asset_url('IMG_0391.png')}" alt="BudHub hero background">
-      </div>
-      <div class="landing-hero-content">
-        <span class="eyebrow">Official BudHub: Capital Region Delivery</span>
-        <h1>LIGHT UP <span>YOUR DAY</span></h1>
-        <h2>The Capital Region's premier cannabis delivery experience.</h2>
-        <p>Discover the BudHub front face with the same bold layout language as your reference frontend, now wired into the live Python app and ready for Railway deployment.</p>
-        <div class="landing-hero-actions">
-          <a class="button" href="{'/register' if not user else '/dashboard'}">{'Get Started' if not user else 'Open Dashboard'}</a>
-          <a class="button ghost" href="#menu">Browse Live Menu</a>
-        </div>
-      </div>
-      <div class="landing-hero-summary">
-        <span class="eyebrow">Current Menu</span>
-        <strong>{len(products)} items available</strong>
-        <p>{visible_products} items match the current live filter set.</p>
-      </div>
-    </section>
-    <section class="landing-section" id="experience">
-      <div class="landing-section-head landing-section-head-centered">
-        <span class="eyebrow">Start Your Experience</span>
-        <h2>Start your experience</h2>
-      </div>
-      <div class="landing-experience-grid">
-        {experience_markup}
-      </div>
-    </section>
-    <section class="landing-section landing-section-featured" id="featured">
-      <div class="landing-section-head landing-section-head-centered">
-        <span class="eyebrow">Featured In</span>
-        <h2>Featured in</h2>
-      </div>
-      <div class="landing-featured-stack">
-        {featured_markup}
-      </div>
-    </section>
-    <section class="landing-drops" id="drops">
-      <div class="landing-drops-panel"></div>
-      <div class="landing-drops-content">
-        <div class="landing-drops-head">
-          <div>
-            <span class="eyebrow">New Drops</span>
-            <h2>Available now!</h2>
-          </div>
-          <a href="#menu">See all</a>
-        </div>
-        <div class="landing-drops-grid">
-          {showcase_markup if showcase_markup else f'<article class="landing-drop-card landing-drop-card-empty"><div class="landing-drop-card-copy"><strong>Menu loading</strong><span>Add products to show live drops here.</span></div></article>'}
-        </div>
-      </div>
-    </section>
-    <section class="landing-section" id="brands">
-      <div class="landing-section-head">
-        <span class="eyebrow">Brands</span>
-        <h2>Brands we carry</h2>
-      </div>
-      <div class="landing-brand-grid">
-        {brand_markup}
-      </div>
-    </section>
-    <section class="landing-menu-shell" id="menu">
-      <div class="landing-section-head">
-        <span class="eyebrow">Live Menu</span>
-        <h2>Shop the live Python app menu</h2>
-      </div>
-      <div class="store-layout">
-        <div class="store-main">
-          <section class="menu-section">
+    menu_markup = f"""
+    <div class="store-layout">
+      <div class="store-main">
+        <section class="menu-section">
           <div class="menu-section-head">
             <div>
               <span class="eyebrow">Browse 518 Submenus</span>
@@ -4699,11 +4631,12 @@ def render_store_page(connection, user=None, message=None, level="info", filters
           {strain_controls}
           {render_store_search(filters)}
           <div class="product-grid" id="store-product-grid">{''.join(cards) if cards else "<p>No menu items match that search or filter yet.</p>"}</div>
-          </section>
-        </div>
-        {render_cart_widget(connection, user, filters)}
+        </section>
       </div>
-    </section>
+      {render_cart_widget(connection, user, filters)}
+    </div>
+    """
+    menu_script = f"""
     <script>
       (function () {{
         var state = {{
@@ -4747,14 +4680,14 @@ def render_store_page(connection, user=None, message=None, level="info", filters
           if (countNode) {{
             countNode.textContent = visible + ' matches';
           }}
-          document.querySelectorAll('[data-filter-kind=\"category\"]').forEach(function (chip) {{
+          document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
             chip.classList.toggle('active', chip.dataset.filterValue === state.category);
           }});
-          document.querySelectorAll('[data-filter-kind=\"strain\"]').forEach(function (chip) {{
+          document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
             chip.classList.toggle('active', chip.dataset.filterValue === state.strain);
           }});
         }}
-        document.querySelectorAll('[data-filter-kind=\"category\"]').forEach(function (chip) {{
+        document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
             state.category = chip.dataset.filterValue;
             if (state.category !== 'Flower' && state.category !== 'Concentrates') {{
@@ -4763,7 +4696,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             applyFilters();
           }});
         }});
-        document.querySelectorAll('[data-filter-kind=\"strain\"]').forEach(function (chip) {{
+        document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
             state.strain = chip.dataset.filterValue;
             applyFilters();
@@ -4796,8 +4729,307 @@ def render_store_page(connection, user=None, message=None, level="info", filters
       }})();
     </script>
     """
+    body = f"""
+    <section class="landing-hero" id="landing-hero">
+      <div class="landing-hero-bg">
+        <img src="{landing_asset_url('IMG_0391.png')}" alt="BudHub hero background">
+      </div>
+      <div class="landing-hero-content">
+        <span class="eyebrow">Official BudHub: Capital Region Delivery</span>
+        <h1>LIGHT UP <span>YOUR DAY</span></h1>
+        <h2>The Capital Region's premier cannabis delivery experience.</h2>
+        <p>{html.escape(APP_TAGLINE)}</p>
+        <div class="landing-hero-actions">
+          <a class="button" href="{'/register' if not user else '/dashboard'}">{'Get Started' if not user else 'Open Dashboard'}</a>
+          <a class="button ghost" href="/menu">View Menu</a>
+        </div>
+      </div>
+      <div class="landing-hero-summary">
+        <span class="eyebrow">Current Menu</span>
+        <strong>{len(products)} items available</strong>
+        <p>{visible_products} items match the current live filter set.</p>
+      </div>
+    </section>
+    <section class="landing-section" id="experience">
+      <div class="landing-section-head landing-section-head-centered">
+        <span class="eyebrow">Start Your Experience</span>
+        <h2>Start your experience</h2>
+      </div>
+      <div class="landing-experience-grid">
+        {experience_markup}
+      </div>
+    </section>
+    <section class="landing-section landing-section-featured" id="featured">
+      <div class="landing-section-head landing-section-head-centered">
+        <span class="eyebrow">Featured In</span>
+        <h2>Featured in</h2>
+      </div>
+      <div class="landing-featured-stack">
+        {featured_markup}
+      </div>
+    </section>
+    <section class="landing-drops" id="drops">
+      <div class="landing-drops-panel"></div>
+      <div class="landing-drops-content">
+        <div class="landing-drops-head">
+          <div>
+            <span class="eyebrow">New Drops</span>
+            <h2>Available now!</h2>
+          </div>
+          <a href="/menu">See all</a>
+        </div>
+        <div class="landing-drops-grid">
+          {showcase_markup if showcase_markup else f'<article class="landing-drop-card landing-drop-card-empty"><div class="landing-drop-card-copy"><strong>Menu loading</strong><span>Add products to show live drops here.</span></div></article>'}
+        </div>
+      </div>
+    </section>
+    <section class="landing-section" id="brands">
+      <div class="landing-section-head">
+        <span class="eyebrow">Brands</span>
+        <h2>Brands we carry</h2>
+      </div>
+      <div class="landing-brand-grid">
+        {brand_markup}
+      </div>
+    </section>
+    """
     return landing_page(
         APP_NAME,
+        body,
+        user=user,
+        message=message,
+        level=level,
+        cart_count=cart_count,
+        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
+    )
+
+
+def render_menu_page(connection, user=None, message=None, level="info", filters=None):
+    filters = normalized_store_filters(filters)
+    products = connection.execute(
+        """
+        SELECT *
+        FROM products
+        WHERE stock > 0
+        ORDER BY
+            CASE category
+                WHEN 'Flower' THEN 1
+                WHEN 'Edibles' THEN 2
+                WHEN 'Concentrates' THEN 3
+                ELSE 5
+            END,
+            CASE
+                WHEN category = 'Flower' AND (name LIKE '%DS 7G%' OR description LIKE '%Double Stuffed%') THEN 0
+                WHEN category = 'Flower' THEN 1
+                ELSE 0
+            END,
+            price ASC,
+            name COLLATE NOCASE ASC
+        """
+    ).fetchall()
+    cart_count = client_cart_count(connection, user["id"]) if user and user["role"] == "client" else 0
+    cards = []
+    visible_products = 0
+    for product in products:
+        product_strain = normalize_strain_type(product["strain_type"] or "Unspecified")
+        matches_filters = True
+        if filters["category"] != "All" and product["category"] != filters["category"]:
+            matches_filters = False
+        if filters["category"] in {"Flower", "Concentrates"} and filters["strain"] != "All" and product_strain != filters["strain"]:
+            matches_filters = False
+        if filters["search"] and filters["search"].lower() not in str(product["name"]).lower():
+            matches_filters = False
+        if matches_filters:
+            visible_products += 1
+        action = "<a class='button' href='/login'>Login to Order</a>"
+        if user and user["role"] == "client":
+            action = f"""
+            <form method="post" action="/cart/add" class="card-action-stack">
+              <input type="hidden" name="product_id" value="{product['id']}">
+              <input type="hidden" name="return_to" value="{html.escape(store_url(filters).replace('/', '/menu', 1) + '#bag-widget')}">
+              <label class="compact-label">Qty<input type="number" name="quantity" min="1" max="{product['stock']}" value="1" required></label>
+              <div class="card-buttons">
+                <button type="submit">Add to Bag</button>
+                <a class="button ghost" href="/menu#bag-widget">Open Bag</a>
+              </div>
+            </form>
+            """
+        elif user:
+            action = "<a class='button ghost' href='/dashboard'>Open Dashboard</a>"
+        card_label = product["category"]
+        if product["category"] == "Flower" and is_double_stuffed_product(product):
+            card_label = "Flower | Double Stuffed 7G"
+        cards.append(
+            f"""
+            <article class="product-card{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}">
+              <img class="product-card-image" src="{html.escape(product_image_proxy_url(product['image_url'], product['source_url'] or ''))}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
+              <div class="product-card-top">
+                <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
+                <h3>{html.escape(product["name"])}</h3>
+                <div class="product-meta-pills">
+                  <span class="price-pill">{format_money(product["price"])}</span>
+                  {f"<span class='strain-pill'>{html.escape(product_strain)}</span>" if product["category"] in {"Flower", "Concentrates"} else ""}
+                  {f"<span class='strain-pill'>{html.escape(product['menu_group'])}</span>" if product["menu_group"] else ""}
+                </div>
+              </div>
+              <p>{html.escape(product["description"])}</p>
+              {f'<a class="source-link" href="{html.escape(product["source_url"])}" target="_blank" rel="noopener noreferrer">Leafly Reference</a>' if product["source_url"] else ""}
+              <div class="product-card-bottom">{action}</div>
+            </article>
+            """
+        )
+    category_chips = "".join(
+        render_store_chip(option, store_url(filters, category=option, strain="All").replace("/", "/menu", 1), active=filters["category"] == option, kind="category")
+        for option in STORE_CATEGORY_OPTIONS
+    )
+    strain_controls = f"""
+    <div class="filter-row{' is-hidden' if filters['category'] not in {'Flower', 'Concentrates'} else ''}" id="strain-filter-row">
+      <span class="eyebrow">Strain Filter</span>
+      <div class="filter-chip-row">
+        {''.join(render_store_chip(option, store_url(filters, strain=option).replace("/", "/menu", 1), active=filters["strain"] == option, kind="strain") for option in STRAIN_FILTER_OPTIONS)}
+      </div>
+    </div>
+    """
+    menu_markup = f"""
+    <div class="store-layout">
+      <div class="store-main">
+        <section class="menu-section">
+          <div class="menu-section-head">
+            <div>
+              <span class="eyebrow">Browse 518 Submenus</span>
+              <h3>{html.escape(filters["category"] if filters["category"] != "All" else "All Menu Items")}</h3>
+            </div>
+            <span class="menu-count" id="menu-match-count">{visible_products} matches</span>
+          </div>
+          <p class="menu-note">{html.escape(active_store_note(filters["category"]))}</p>
+          <div class="filter-row">
+            <span class="eyebrow">Menu Categories</span>
+            <div class="filter-chip-row">{category_chips}</div>
+          </div>
+          {strain_controls}
+          {render_store_search(filters)}
+          <div class="product-grid" id="store-product-grid">{''.join(cards) if cards else "<p>No menu items match that search or filter yet.</p>"}</div>
+        </section>
+      </div>
+      {render_cart_widget(connection, user, filters, base_path="/menu")}
+    </div>
+    """
+    menu_script = f"""
+    <script>
+      (function () {{
+        var state = {{
+          category: {filters["category"]!r},
+          strain: {filters["strain"]!r},
+          search: {filters["search"]!r}
+        }};
+        var cards = Array.prototype.slice.call(document.querySelectorAll('.product-card[data-category]'));
+        var countNode = document.getElementById('menu-match-count');
+        var searchInput = document.getElementById('store-search-input');
+        var clearButton = document.getElementById('store-clear-button');
+        var searchButton = document.getElementById('store-search-button');
+        var strainRow = document.getElementById('strain-filter-row');
+        function applyFilters() {{
+          var visible = 0;
+          if (strainRow) {{
+            strainRow.classList.toggle('is-hidden', state.category !== 'Flower' && state.category !== 'Concentrates');
+          }}
+          cards.forEach(function (card) {{
+            var category = card.dataset.category || 'General';
+            var strain = card.dataset.strain || 'Unspecified';
+            var name = card.dataset.name || '';
+            var matches = true;
+            if (state.category !== 'All' && category !== state.category) {{
+              matches = false;
+            }}
+            if (state.category !== 'Flower' && state.category !== 'Concentrates') {{
+              state.strain = 'All';
+            }}
+            if (state.strain !== 'All' && strain !== state.strain) {{
+              matches = false;
+            }}
+            if (state.search && name.indexOf(state.search.toLowerCase()) === -1) {{
+              matches = false;
+            }}
+            card.classList.toggle('is-hidden', !matches);
+            if (matches) {{
+              visible += 1;
+            }}
+          }});
+          if (countNode) {{
+            countNode.textContent = visible + ' matches';
+          }}
+          document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
+            chip.classList.toggle('active', chip.dataset.filterValue === state.category);
+          }});
+          document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
+            chip.classList.toggle('active', chip.dataset.filterValue === state.strain);
+          }});
+        }}
+        document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
+          chip.addEventListener('click', function () {{
+            state.category = chip.dataset.filterValue;
+            if (state.category !== 'Flower' && state.category !== 'Concentrates') {{
+              state.strain = 'All';
+            }}
+            applyFilters();
+          }});
+        }});
+        document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
+          chip.addEventListener('click', function () {{
+            state.strain = chip.dataset.filterValue;
+            applyFilters();
+          }});
+        }});
+        if (searchButton) {{
+          searchButton.addEventListener('click', function () {{
+            state.search = searchInput ? searchInput.value.trim() : '';
+            applyFilters();
+          }});
+        }}
+        if (searchInput) {{
+          searchInput.addEventListener('input', function () {{
+            state.search = searchInput.value.trim();
+            applyFilters();
+          }});
+        }}
+        if (clearButton) {{
+          clearButton.addEventListener('click', function () {{
+            state.category = 'All';
+            state.strain = 'All';
+            state.search = '';
+            if (searchInput) {{
+              searchInput.value = '';
+            }}
+            applyFilters();
+          }});
+        }}
+        applyFilters();
+      }})();
+    </script>
+    """
+    body = f"""
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">Official BudHub | 518 Delivery</span>
+        <h2>{html.escape(APP_TAGLINE)}</h2>
+        <p>Browse live flower, concentrates, edibles, and more.</p>
+        <div class="hero-actions">
+          <a class="button" href="{'/menu#bag-widget' if user and user['role'] == 'client' else '/login'}">{'Open Bag' if user and user['role'] == 'client' else 'Customer Login'}</a>
+          <a class="button ghost" href="/">{'Return Home'}</a>
+        </div>
+      </div>
+      <div class="hero-side">
+        <div class="hero-summary">
+          <span class="eyebrow">Current Menu</span>
+          <strong>{len(products)} items available</strong>
+        </div>
+      </div>
+    </section>
+    {menu_markup}
+    {menu_script}
+    """
+    return page(
+        f"{APP_NAME} Menu",
         body,
         user=user,
         message=message,
@@ -7049,6 +7281,8 @@ def application(environ, start_response):
             return redirect(start_response, "/dashboard?message=Your account is restricted")
         if path == "/" and method == "GET":
             return text_response(start_response, render_store_page(connection, user=user, message=message, filters=params))
+        if path == "/menu" and method == "GET":
+            return text_response(start_response, render_menu_page(connection, user=user, message=message, filters=params))
         if path == "/login":
             if method == "POST":
                 return handle_login(environ, start_response, connection)
