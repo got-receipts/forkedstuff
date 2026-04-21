@@ -1645,8 +1645,31 @@ th {
     padding: 1rem;
   }
 
+  .landing-header-actions {
+    gap: 0.65rem;
+  }
+
+  .landing-header-actions .button {
+    min-width: 0;
+    width: auto;
+  }
+
   .landing-hero {
-    padding: 10rem 1rem 3rem;
+    padding: 12.5rem 1rem 3rem;
+    align-items: start;
+  }
+
+  .landing-hero-content h1 {
+    font-size: clamp(2.7rem, 12vw, 4.2rem);
+    line-height: 1.02;
+  }
+
+  .landing-hero-content h2 {
+    font-size: 1.05rem;
+  }
+
+  .landing-hero-actions {
+    gap: 0.75rem;
   }
 
   .landing-section,
