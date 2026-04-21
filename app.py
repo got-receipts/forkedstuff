@@ -2446,7 +2446,6 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
         <span class="eyebrow">Account</span>
         <strong>{html.escape(user["name"] if user else "Guest")}</strong>
         <span>{html.escape(role_label)}</span>
-        <a class="button ghost" href="/logout">Logout</a>
       </div>
     </aside>
     <div class="dashboard-content-shell">
@@ -2461,6 +2460,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
             <strong>{html.escape(user["name"] if user else "Guest")}</strong>
             <span>{html.escape(role_label)}</span>
           </div>
+          <a class="button ghost dashboard-topbar-logout" href="/logout">Logout</a>
         </div>
       </header>
       <main class="dashboard-main">
@@ -2478,6 +2478,14 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
           var target = document.getElementById(node.getAttribute('data-trigger-click'));
           if (target) {{
             target.click();
+          }}
+        }});
+      }});
+      document.querySelectorAll('[data-scroll-target]').forEach(function (node) {{
+        node.addEventListener('click', function () {{
+          var target = document.getElementById(node.getAttribute('data-scroll-target'));
+          if (target) {{
+            target.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
           }}
         }});
       }});
@@ -2519,6 +2527,7 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
       <div class="dashboard-action-list">
         <button type="button" class="dashboard-action-link" data-trigger-click="open-account-recovery-modal">Recovery</button>
         <button type="button" class="dashboard-action-link" data-trigger-click="open-account-manager-modal">Accounts</button>
+        <button type="button" class="dashboard-action-link" data-scroll-target="id-verification-queue">Pending Accounts</button>
       </div>
     </section>
     <section class="dashboard-widget dashboard-widget-actions">
@@ -6155,14 +6164,28 @@ def render_driver_dashboard(connection, user, message=None, level="info", open_t
 def render_admin_home(connection, user, message=None, level="info"):
     title = "Engineer Dashboard" if user["role"] == "helpdesk" else "Admin Dashboard"
     finance = finance_snapshot(connection)
+    users = connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    products = connection.execute("SELECT * FROM products ORDER BY created_at DESC").fetchall()
+    tickets = ticket_rows(connection)
+    coupons = coupon_rows(connection)
+    leafly_strains = leafly_strain_rows(connection)
+    user_stats = user_stats_map(connection)
+    payroll = payroll_snapshot(connection, users, user_stats)
+    order_chat_logs = recent_order_messages(connection)
+    verification_queue = connection.execute(
+        """
+        SELECT * FROM users
+        WHERE role = 'client' AND verification_status = 'PENDING_REVIEW'
+        ORDER BY created_at ASC
+        """
+    ).fetchall()
     users_total = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
     products_total = connection.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"]
     tickets_total = connection.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
-    verification_count = connection.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'client' AND verification_status = 'PENDING_REVIEW'").fetchone()["count"]
-    order_chat_count = connection.execute("SELECT COUNT(*) AS count FROM order_messages").fetchone()["count"]
+    verification_count = len(verification_queue)
+    order_chat_count = len(order_chat_logs)
     guest_help_open = connection.execute("SELECT COUNT(*) AS count FROM guest_help_requests WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "guest_help_requests") else 0
     support_open = connection.execute("SELECT COUNT(*) AS count FROM support_tickets WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "support_tickets") else 0
-    payroll = payroll_snapshot(connection, connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall(), user_stats_map(connection))
     sidebar_widgets = render_admin_sidebar_widgets(
         user,
         finance,
@@ -6189,7 +6212,6 @@ def render_admin_home(connection, user, message=None, level="info"):
     )
     nav_items = [
         ("dashboard", "/dashboard", "Dashboard", "product.png"),
-        ("tools", "/admin", "Admin Tools", "package.png"),
         ("menu", "/menu", "Menu", "search (1).png"),
     ]
     body = f"""
@@ -6210,11 +6232,60 @@ def render_admin_home(connection, user, message=None, level="info"):
         {overview_cards}
       </div>
       <section class="panel">
-        <span class="eyebrow">{html.escape(title)}</span>
-        <h2>Budhub operations overview</h2>
-        <div class="hero-actions"><a class="button" href="/admin">Open Admin Tools</a><a class="button ghost" href="/menu">View Customer Menu</a></div>
+        <h2>Latest Budhub Tickets</h2>
+        <table>
+          <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
+          <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
+        </table>
+      </section>
+      <section class="panel">
+        <h2>Order Chat Logs</h2>
+        <div class="order-card-grid">
+          {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(message['ticket_number'])}</span><h3>{html.escape(message['author_name'])}</h3></div><span class='menu-count'>{html.escape(message['created_at'])}</span></div><div class='order-meta'><span>Role: {html.escape(ROLE_LABELS.get(message['author_role'], message['author_role']))}</span></div><div class='reason-box'>{html.escape(message['message'])}</div></article>" for message in order_chat_logs) or '<p>No order chat messages yet.</p>'}
+        </div>
+      </section>
+      <section class="panel" id="id-verification-queue">
+        <h2>ID Verification Queue</h2>
+        <div class="order-card-grid">
+          {''.join(
+              f'''
+              <article class="order-card">
+                <div class="order-card-head">
+                  <div><span class="eyebrow">{html.escape(account["email"])}</span><h3>{html.escape(account["name"])}</h3></div>
+                  <span class="badge badge-review_required">Pending Review</span>
+                </div>
+                <div class="order-meta">
+                  <span>Created: {html.escape(account["created_at"])}</span>
+                  <span>Status: {html.escape(account["verification_status"])}</span>
+                </div>
+                <div class="verification-grid">
+                  <a class="verification-card" href="{html.escape(account["id_front_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_front_path"] or "")}" alt="ID front"><span>ID Front</span></a>
+                  <a class="verification-card" href="{html.escape(account["id_back_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_back_path"] or "")}" alt="ID back"><span>ID Back</span></a>
+                  <a class="verification-card" href="{html.escape(account["id_selfie_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_selfie_path"] or "")}" alt="Selfie holding ID"><span>Selfie With ID</span></a>
+                </div>
+                <form method="post" action="/users/verify" class="action-stack">
+                  <input type="hidden" name="user_id" value="{account["id"]}">
+                  <label>Admin Note<textarea name="note" placeholder="Optional approval note or required rejection note"></textarea></label>
+                  <div class="card-buttons">
+                    <button type="submit" name="decision" value="approve">Approve Account</button>
+                    <button type="submit" name="decision" value="reject" class="danger">Reject Account</button>
+                  </div>
+                </form>
+              </article>
+              '''
+              for account in verification_queue
+          ) or '<p>No pending ID reviews.</p>'}
+        </div>
       </section>
     </section>
+    <div class="admin-dashboard-widget-modals">
+      {render_payroll_widget(payroll, user["role"])}
+      {render_account_recovery_widget(users, user["role"])}
+      {render_admin_creation_widgets(leafly_strains, coupons, products)}
+      {render_credit_issue_panel(connection)}
+      {render_payment_destination_widget(connection)}
+      {render_account_management_widget(users, user_stats, user["role"])}
+    </div>
     """
     return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
 
@@ -6267,7 +6338,6 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     )
     nav_items = [
         ("dashboard", "/dashboard", "Dashboard", "product.png"),
-        ("tools", "/admin", "Admin Tools", "package.png"),
         ("menu", "/menu", "Menu", "search (1).png"),
     ]
     engineer_stats = ""
@@ -6397,7 +6467,7 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     {render_account_management_widget(users, user_stats, user["role"])}
     {engineer_sections}
     """
-    return dashboard_page(title, body, user=user, message=message, level=level, active_section="tools", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
+    return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
 
 
 def render_helpdesk_dashboard(connection, user, message=None, level="info"):
