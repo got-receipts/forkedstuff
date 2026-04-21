@@ -2368,7 +2368,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
       }});
     }})();
     (function () {{
-      var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll'));
+      var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll, .fall-into-place'));
       if (!nodes.length || !('IntersectionObserver' in window)) {{
         nodes.forEach(function (node) {{ node.classList.add('is-visible'); }});
         return;
@@ -2381,7 +2381,12 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
           }}
         }});
       }}, {{ threshold: 0.18 }});
-      nodes.forEach(function (node) {{ observer.observe(node); }});
+      nodes.forEach(function (node, index) {{
+        if (node.classList.contains('fall-into-place')) {{
+          node.style.setProperty('--fall-delay', Math.min(index % 9, 8) * 70 + 'ms');
+        }}
+        observer.observe(node);
+      }});
     }})();
   </script>
 </body>
@@ -4861,7 +4866,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             card_label = "Flower | Double Stuffed 7G"
         cards.append(
             f"""
-            <article class="product-card{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}">
+            <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}">
               <img class="product-card-image" src="{html.escape(product_image_proxy_url(product['image_url'], product['source_url'] or ''))}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
               <div class="product-card-top">
                 <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
@@ -4924,7 +4929,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
     showcase_products = products[:9]
     showcase_markup = "".join(
         f"""
-        <article class="landing-drop-card">
+        <article class="landing-drop-card fall-into-place">
           <div class="landing-drop-card-media">
             <img src="{html.escape(product_image_proxy_url(product['image_url'], product['source_url'] or ''))}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='{landing_asset_url('new-product.png')}'">
           </div>
