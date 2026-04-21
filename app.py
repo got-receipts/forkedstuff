@@ -2574,9 +2574,6 @@ def render_admin_overview_cards(user, finance, payroll, user_count, product_coun
       <div><span>Order Chat Logs</span><strong>{order_chat_count}</strong></div>
     </article>
     <article class="dashboard-analytics-card dashboard-analytics-card-stack">
-      <div><span>ID Verification Queue</span><strong>{verification_count}</strong></div>
-    </article>
-    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
       <div><span>Accounts</span><strong>{html.escape(account_title)}</strong></div>
       <div><span>Accounts {user_count}</span></div>
       <div><span>Menu Items {product_count}</span></div>
@@ -2661,18 +2658,20 @@ def render_pending_accounts_widget(verification_queue):
 
 def render_admin_dashboard_activity_sections(tickets, order_chat_logs):
     return f"""
-    <section class="panel">
-      <h2>Latest Budhub Tickets</h2>
-      <table>
-        <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
-        <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
-      </table>
-    </section>
-    <section class="panel">
-      <h2>Order Chat Logs</h2>
-      <div class="order-card-grid">
-        {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(message['ticket_number'])}</span><h3>{html.escape(message['author_name'])}</h3></div><span class='menu-count'>{html.escape(message['created_at'])}</span></div><div class='order-meta'><span>Role: {html.escape(ROLE_LABELS.get(message['author_role'], message['author_role']))}</span></div><div class='reason-box'>{html.escape(message['message'])}</div></article>" for message in order_chat_logs) or '<p>No order chat messages yet.</p>'}
-      </div>
+    <section class="admin-grid dashboard-activity-grid">
+      <section class="panel">
+        <h2>Latest Budhub Tickets</h2>
+        <table>
+          <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
+          <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
+        </table>
+      </section>
+      <section class="panel">
+        <h2>Order Chat Logs</h2>
+        <div class="order-card-grid">
+          {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(message['ticket_number'])}</span><h3>{html.escape(message['author_name'])}</h3></div><span class='menu-count'>{html.escape(message['created_at'])}</span></div><div class='order-meta'><span>Role: {html.escape(ROLE_LABELS.get(message['author_role'], message['author_role']))}</span></div><div class='reason-box'>{html.escape(message['message'])}</div></article>" for message in order_chat_logs) or '<p>No order chat messages yet.</p>'}
+        </div>
+      </section>
     </section>
     """
 
@@ -2687,7 +2686,6 @@ def render_admin_dashboard_modal_deck(connection, user, users, products, coupons
       {render_payment_destination_widget(connection)}
       {render_account_management_widget(users, user_stats, user["role"])}
       {render_pending_accounts_widget(verification_queue)}
-      {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
     </div>
     """
 
@@ -6332,12 +6330,12 @@ def render_admin_home(connection, user, message=None, level="info"):
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('product.png')}" alt="Accounts"></div><div><span>Total Accounts</span><strong>{users_total}</strong></div></article>
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Menu Items"></div><div><span>Menu Items</span><strong>{products_total}</strong></div></article>
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Budhub Tickets"></div><div><span>Budhub Tickets</span><strong>{tickets_total}</strong></div></article>
-        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('search (1).png')}" alt="Verification"></div><div><span>ID Reviews</span><strong>{verification_count}</strong></div></article>
       </div>
       <div class="dashboard-analytics-grid">
         {overview_cards}
       </div>
     </section>
+    {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
     {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
     {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
     """
@@ -6451,12 +6449,6 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
         </div>
       </section>
     </section>
-    <section class="panel">
-      <h2>Account Activity Log</h2>
-      <div class="order-card-grid">
-        {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(log['actor_role'] or 'System')}</span><h3>{html.escape(log['actor_name'] or 'System')}</h3></div><span class='menu-count'>{html.escape(log['created_at'])}</span></div><div class='order-meta'><span>Action: {html.escape(log['action'])}</span><span>Target: {html.escape(log['target_user_name'] or 'N/A')}</span></div><div class='reason-box'>{html.escape(log['details'] or 'No extra details provided.')}</div></article>" for log in activity_logs) or '<p>No activity logged yet.</p>'}
-      </div>
-    </section>
         """
     body = f"""
     {render_account_stats_panel(connection, user)}
@@ -6464,64 +6456,9 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     <div class="dashboard-analytics-grid">
       {overview_cards}
     </div>
-    {render_payroll_widget(payroll, user["role"])}
-    {render_account_recovery_widget(users, user["role"])}
-    <section class="admin-grid">
-      {render_admin_creation_widgets(leafly_strains, coupons, products)}
-      {render_credit_issue_panel(connection)}
-    </section>
-    {render_payment_destination_widget(connection)}
     {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
-    <section class="panel">
-      <h2>Latest Budhub Tickets</h2>
-      <table>
-        <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
-        <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
-      </table>
-    </section>
-    <section class="panel">
-      <h2>Order Chat Logs</h2>
-      <div class="order-card-grid">
-        {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(message['ticket_number'])}</span><h3>{html.escape(message['author_name'])}</h3></div><span class='menu-count'>{html.escape(message['created_at'])}</span></div><div class='order-meta'><span>Role: {html.escape(ROLE_LABELS.get(message['author_role'], message['author_role']))}</span></div><div class='reason-box'>{html.escape(message['message'])}</div></article>" for message in order_chat_logs) or '<p>No order chat messages yet.</p>'}
-      </div>
-    </section>
-    <section class="panel">
-      <h2>ID Verification Queue</h2>
-      <div class="order-card-grid">
-        {''.join(
-            f'''
-            <article class="order-card">
-              <div class="order-card-head">
-                <div><span class="eyebrow">{html.escape(account["email"])}</span><h3>{html.escape(account["name"])}</h3></div>
-                <span class="badge badge-review_required">Pending Review</span>
-              </div>
-              <div class="order-meta">
-                <span>Created: {html.escape(account["created_at"])}</span>
-                <span>Status: {html.escape(account["verification_status"])}</span>
-              </div>
-              <div class="verification-grid">
-                <a class="verification-card" href="{html.escape(account["id_front_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_front_path"] or "")}" alt="ID front"><span>ID Front</span></a>
-                <a class="verification-card" href="{html.escape(account["id_back_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_back_path"] or "")}" alt="ID back"><span>ID Back</span></a>
-                <a class="verification-card" href="{html.escape(account["id_selfie_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_selfie_path"] or "")}" alt="Selfie holding ID"><span>Selfie With ID</span></a>
-              </div>
-              <form method="post" action="/users/verify" class="action-stack">
-                <input type="hidden" name="user_id" value="{account["id"]}">
-                <label>Admin Note<textarea name="note" placeholder="Optional approval note or required rejection note"></textarea></label>
-                <div class="card-buttons">
-                  <button type="submit" name="decision" value="approve">Approve Account</button>
-                  <button type="submit" name="decision" value="reject" class="danger">Reject Account</button>
-                </div>
-              </form>
-            </article>
-            '''
-            for account in verification_queue
-        ) or '<p>No pending ID reviews.</p>'}
-      </div>
-    </section>
-    {render_account_management_widget(users, user_stats, user["role"])}
-    <div class="dashboard-hidden-widgets">
-      {render_pending_accounts_widget(verification_queue)}
-    </div>
+    {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
+    {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
     {engineer_sections}
     """
     return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
