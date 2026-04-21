@@ -1320,9 +1320,9 @@ th {
 .landing-hero {
   position: relative;
   min-height: 100vh;
-  padding: 8.5rem 1.5rem 4rem;
+  padding: 11rem 1.5rem 4rem;
   display: grid;
-  align-items: end;
+  align-items: center;
   overflow: hidden;
 }
 
@@ -1349,7 +1349,6 @@ th {
 }
 
 .landing-hero-content,
-.landing-hero-summary,
 .landing-section,
 .landing-drops-content,
 .landing-menu-shell {
@@ -1393,22 +1392,6 @@ th {
   gap: 1rem;
   margin-top: 1.75rem;
   flex-wrap: wrap;
-}
-
-.landing-hero-summary {
-  margin-top: 2rem;
-  max-width: 280px;
-  padding: 1.25rem 1.35rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 24px;
-  background: rgba(26, 26, 26, 0.58);
-  backdrop-filter: blur(10px);
-}
-
-.landing-hero-summary strong {
-  display: block;
-  margin: 0.35rem 0 0.55rem;
-  font-size: 1.7rem;
 }
 
 .landing-section,
@@ -1663,7 +1646,7 @@ th {
   }
 
   .landing-hero {
-    padding: 8rem 1rem 3rem;
+    padding: 10rem 1rem 3rem;
   }
 
   .landing-section,

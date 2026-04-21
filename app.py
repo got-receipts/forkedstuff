@@ -4468,6 +4468,7 @@ def reserve_ticket_stock(connection, ticket_id):
 
 def render_store_page(connection, user=None, message=None, level="info", filters=None):
     filters = normalized_store_filters(filters)
+    auth_menu_link = "/menu" if user else "/login"
     products = connection.execute(
         """
         SELECT *
@@ -4559,7 +4560,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         category_counts[category] = category_counts.get(category, 0) + 1
     experience_markup = "".join(
         f"""
-        <a class="landing-experience-card" href="{html.escape(store_url(filters, category=label, strain='All').replace('/', '/menu', 1))}">
+        <a class="landing-experience-card" href="{html.escape(store_url(filters, category=label, strain='All').replace('/', '/menu', 1) if user else '/login')}">
           <div class="landing-experience-title">
             <img src="{landing_asset_url(icon_name)}" alt="{html.escape(label)} icon">
             <div>
@@ -4741,13 +4742,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         <p>{html.escape(APP_TAGLINE)}</p>
         <div class="landing-hero-actions">
           <a class="button" href="{'/register' if not user else '/dashboard'}">{'Get Started' if not user else 'Open Dashboard'}</a>
-          <a class="button ghost" href="/menu">View Menu</a>
+          <a class="button ghost" href="/login">Sign In</a>
         </div>
-      </div>
-      <div class="landing-hero-summary">
-        <span class="eyebrow">Current Menu</span>
-        <strong>{len(products)} items available</strong>
-        <p>{visible_products} items match the current live filter set.</p>
       </div>
     </section>
     <section class="landing-section" id="experience">
@@ -4776,7 +4772,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             <span class="eyebrow">New Drops</span>
             <h2>Available now!</h2>
           </div>
-          <a href="/menu">See all</a>
+          <a href="{auth_menu_link}">See all</a>
         </div>
         <div class="landing-drops-grid">
           {showcase_markup if showcase_markup else f'<article class="landing-drop-card landing-drop-card-empty"><div class="landing-drop-card-copy"><strong>Menu loading</strong><span>Add products to show live drops here.</span></div></article>'}
