@@ -2299,11 +2299,6 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
         <button type="button" class="button ghost" data-drawer-close="yes">Close</button>
       </div>
       <nav class="landing-drawer-links">
-        <a href="#landing-hero" data-drawer-close="yes">Home</a>
-        <a href="#experience" data-drawer-close="yes">Experience</a>
-        <a href="#featured" data-drawer-close="yes">Featured In</a>
-        <a href="#drops" data-drawer-close="yes">Available Now</a>
-        <a href="#brands" data-drawer-close="yes">Brands</a>
         <a href="/menu" data-drawer-close="yes">Live Menu</a>
       </nav>
       <div class="landing-drawer-grid">
@@ -2392,6 +2387,89 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
       nodes.forEach(function (node) {{ observer.observe(node); }});
     }})();
   </script>
+</body>
+</html>"""
+
+
+def user_initials(name):
+    parts = [part for part in str(name or "").strip().split() if part]
+    if not parts:
+        return "U"
+    if len(parts) == 1:
+        return parts[0][:1].upper()
+    return (parts[0][:1] + parts[-1][:1]).upper()
+
+
+def dashboard_page(title, body, user=None, message=None, level="info", cart_count=0, active_section="dashboard", extra_shell=""):
+    nav_items = [
+        ("dashboard", "/dashboard", "Dashboard", "product.png"),
+        ("menu", "/menu", "Menu", "product.png"),
+        ("bag", "/cart", f"Bag ({cart_count})", "package.png"),
+        ("help", "/help", "Help", "chat.png"),
+    ]
+    nav_markup = "".join(
+        f"""
+        <a class="dashboard-nav-link{' is-active' if key == active_section else ''}" href="{href}">
+          <img src="{landing_asset_url(icon_name)}" alt="{label}">
+          <span>{html.escape(label)}</span>
+        </a>
+        """
+        for key, href, label, icon_name in nav_items
+    )
+    role_label = ROLE_LABELS.get(user["role"], user["role"]) if user else "Guest"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredericka+the+Great&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="dashboard-body">
+  <div class="dashboard-shell">
+    <aside class="dashboard-sidebar">
+      <a class="dashboard-brand" href="/">
+        <img src="{landing_asset_url('logo.png')}" alt="{APP_NAME}">
+        <div>
+          <span class="eyebrow">BudHub Panel</span>
+          <strong>{APP_NAME}</strong>
+        </div>
+      </a>
+      <nav class="dashboard-nav">
+        {nav_markup}
+      </nav>
+      <div class="dashboard-sidecard">
+        <span class="eyebrow">Account</span>
+        <strong>{html.escape(user["name"] if user else "Guest")}</strong>
+        <span>{html.escape(role_label)}</span>
+        <a class="button ghost" href="/logout">Logout</a>
+      </div>
+    </aside>
+    <div class="dashboard-content-shell">
+      <header class="dashboard-topbar">
+        <div>
+          <span class="eyebrow">Welcome Back</span>
+          <h1>{html.escape(title)}</h1>
+        </div>
+        <div class="dashboard-topbar-user">
+          <div class="dashboard-avatar">{html.escape(user_initials(user["name"] if user else ""))}</div>
+          <div>
+            <strong>{html.escape(user["name"] if user else "Guest")}</strong>
+            <span>{html.escape(role_label)}</span>
+          </div>
+        </div>
+      </header>
+      <main class="dashboard-main">
+        {flash_message(message, level)}
+        {body}
+      </main>
+    </div>
+  </div>
+  {render_age_gate()}
+  {extra_shell}
 </body>
 </html>"""
 
@@ -5135,6 +5213,17 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
       }})();
     </script>
     """
+    if user and user["role"] == "client":
+        return dashboard_page(
+            f"{APP_NAME} Menu",
+            body,
+            user=user,
+            message=message,
+            level=level,
+            cart_count=cart_count,
+            active_section="menu",
+            extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
+        )
     return page(
         f"{APP_NAME} Menu",
         body,
@@ -5188,6 +5277,9 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
     items_map = ticket_items_map(connection, [ticket["id"] for ticket in tickets])
     message_map = order_messages_map(connection, [ticket["id"] for ticket in tickets])
     open_ticket = next((ticket for ticket in tickets if str(ticket["id"]) == str(open_ticket_id)), None)
+    open_count = sum(1 for ticket in tickets if ticket["status"] not in {"DELIVERED", "CANCELED"})
+    delivered_count = sum(1 for ticket in tickets if ticket["status"] == "DELIVERED")
+    outstanding_total = sum(ticket_due_amount(ticket) for ticket in tickets if ticket["status"] not in {"CANCELED", "DELIVERED"})
     cards = []
     for index, ticket in enumerate(tickets):
         notes = ""
@@ -5253,26 +5345,44 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
         """
         cards.append(render_ticket_modal(modal_id, f"Ticket {ticket['ticket_number']}", summary_html, detail_html, ticket["id"]))
     body = f"""
-    <section class="panel">
+    <section class="dashboard-analytics-grid">
+      <article class="dashboard-analytics-card">
+        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('product.png')}" alt="Orders"></div>
+        <div><span>Total Orders</span><strong>{len(tickets)}</strong></div>
+      </article>
+      <article class="dashboard-analytics-card">
+        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Open Orders"></div>
+        <div><span>Open Orders</span><strong>{open_count}</strong></div>
+      </article>
+      <article class="dashboard-analytics-card">
+        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Delivered"></div>
+        <div><span>Delivered</span><strong>{delivered_count}</strong></div>
+      </article>
+      <article class="dashboard-analytics-card">
+        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('search (1).png')}" alt="Balance Due"></div>
+        <div><span>Balance Due</span><strong>{format_money(outstanding_total)}</strong></div>
+      </article>
+    </section>
+    <section class="panel dashboard-panel">
       <div class="panel-head">
         <h2>Your Budhub Orders</h2>
         <div class="panel-actions">
           <a class="button ghost" href="/cart">View Bag</a>
-          <a class="button" href="/">Browse Menu</a>
+          <a class="button" href="/menu">Browse Menu</a>
         </div>
       </div>
       <div class="order-card-grid">{''.join(cards) if cards else '<p>No orders yet.</p>'}</div>
     </section>
     {render_client_profile_widget(user)}
     """
-    return page(
+    return dashboard_page(
         "Customer Dashboard",
         body,
         user=user,
         message=message,
         level=level,
         cart_count=client_cart_count(connection, user["id"]),
-        auto_refresh=True,
+        active_section="dashboard",
         extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_ticket_modal_script(open_ticket_id) + render_order_success_widget(message, open_ticket),
     )
 
@@ -5305,14 +5415,14 @@ def render_cart_page(connection, user, message=None, level="info"):
         )
     body = f"""
     <section class="cart-layout">
-      <section class="panel">
+      <section class="panel dashboard-panel">
         <div class="panel-head">
           <h2>Your Bag</h2>
-          <a class="button ghost" href="/#bag-widget">Back to Menu</a>
+          <a class="button ghost" href="/menu">Back to Menu</a>
         </div>
         <div class="cart-list">{''.join(rows) if rows else '<p>Your bag is empty.</p>'}</div>
       </section>
-      <section class="panel">
+      <section class="panel dashboard-panel">
         <h2>Checkout</h2>
         <div class="checkout-total"><span>Items</span><strong>{client_cart_count(connection, user["id"])}</strong></div>
         <div class="checkout-total"><span>Subtotal</span><strong>{format_money(subtotal)}</strong></div>
@@ -5338,13 +5448,14 @@ def render_cart_page(connection, user, message=None, level="info"):
       </section>
     </section>
     """
-    return page(
+    return dashboard_page(
         "Your Bag",
         body,
         user=user,
         message=message,
         level=level,
         cart_count=client_cart_count(connection, user["id"]),
+        active_section="bag",
         extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
     )
 
