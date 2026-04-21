@@ -2415,6 +2415,13 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
         for key, href, label, icon_name in nav_items
     )
     role_label = ROLE_LABELS.get(user["role"], user["role"]) if user else "Guest"
+    activity_button = ""
+    if user and user["role"] in {"admin", "helpdesk"}:
+        activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-admin-activity-widget">Activity</button>'
+    elif user and user["role"] in {"banker", "dispatcher", "picker", "driver"}:
+        activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-staff-activity-widget">Activity</button>'
+    elif user and user["role"] == "client":
+        activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-activity-widget">Activity</button>'
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2455,6 +2462,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
             <strong>{html.escape(user["name"] if user else "Guest")}</strong>
             <span>{html.escape(role_label)}</span>
           </div>
+          {activity_button}
           <a class="button ghost dashboard-topbar-logout" href="/logout">Logout</a>
         </div>
       </header>
