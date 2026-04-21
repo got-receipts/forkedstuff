@@ -2254,7 +2254,7 @@ def page(title, body, user=None, message=None, level="info", cart_count=0, auto_
   </main>
   <footer class="site-footer">
     <span>Copyright BudHub 2026</span>
-    <span>OS TB Kernal v0.4</span>
+    <span>ThunderOS V 0.0.5</span>
     <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke Responsibly.</span>
   </footer>
   {render_age_gate()}
@@ -2344,7 +2344,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
   </main>
   <footer class="landing-footer">
     <span>Copyright BudHub 2026</span>
-    <span>Capital Region cannabis delivery platform</span>
+    <span>ThunderOS V 0.0.5</span>
     <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke responsibly.</span>
   </footer>
   {render_age_gate()}
@@ -2472,6 +2472,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
       </main>
       <footer class="dashboard-footer">
         <span>Copyright BudHub 2026</span>
+        <span>ThunderOS V 0.0.5</span>
         <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke responsibly.</span>
       </footer>
     </div>
@@ -6346,7 +6347,7 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     users = connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
     products = connection.execute("SELECT * FROM products ORDER BY created_at DESC").fetchall()
     tickets = ticket_rows(connection)
-    support = support_rows(connection)
+    support = support_rows(connection, "WHERE support_tickets.status != 'CLOSED'")
     support_messages = support_messages_map(connection, [ticket["id"] for ticket in support])
     activity_logs = activity_log_rows(connection, trailing_clause="LIMIT 40")
     coupons = coupon_rows(connection)
@@ -6467,7 +6468,11 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
 def render_helpdesk_dashboard(connection, user, message=None, level="info"):
     if user["role"] == "helpdesk":
         return render_admin_dashboard(connection, user, message, level)
-    tickets = support_rows(connection, "WHERE support_tickets.user_id = ? OR support_tickets.opened_by = ?", (user["id"], user["id"]))
+    tickets = support_rows(
+        connection,
+        "WHERE support_tickets.status != 'CLOSED' AND (support_tickets.user_id = ? OR support_tickets.opened_by = ?)",
+        (user["id"], user["id"]),
+    )
     message_map = support_messages_map(connection, [ticket["id"] for ticket in tickets])
     cards = []
     for ticket in tickets:
@@ -6983,6 +6988,8 @@ def handle_support_reply(environ, start_response, connection, user):
         return redirect(start_response, "/help?message=Support ticket not found")
     if user["role"] not in {"admin", "helpdesk"} and ticket["user_id"] != user["id"]:
         return redirect(start_response, "/help?message=That support ticket is not yours")
+    if ticket["status"] == "CLOSED":
+        return redirect(start_response, "/help?message=That support ticket is closed")
     message = data.get("message", "").strip()
     if not message:
         return redirect(start_response, "/help?message=Reply message is required")
@@ -6991,7 +6998,7 @@ def handle_support_reply(environ, start_response, connection, user):
         (ticket_id, user["id"], message, now_iso()),
     )
     connection.execute(
-        "UPDATE support_tickets SET status = CASE WHEN status = 'CLOSED' THEN 'REVIEWED' ELSE status END, updated_at = ? WHERE id = ?",
+        "UPDATE support_tickets SET updated_at = ? WHERE id = ?",
         (now_iso(), ticket_id),
     )
     log_activity(connection, user, "REPLY_SUPPORT_TICKET", f"Replied to support ticket #{ticket_id}.", target_user_id=ticket["user_id"])
