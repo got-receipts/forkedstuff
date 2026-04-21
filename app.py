@@ -2397,13 +2397,14 @@ def user_initials(name):
     return (parts[0][:1] + parts[-1][:1]).upper()
 
 
-def dashboard_page(title, body, user=None, message=None, level="info", cart_count=0, active_section="dashboard", extra_shell=""):
-    nav_items = [
-        ("dashboard", "/dashboard", "Dashboard", "product.png"),
-        ("menu", "/menu", "Menu", "product.png"),
-        ("bag", "/cart", f"Bag ({cart_count})", "package.png"),
-        ("help", "/help", "Help", "chat.png"),
-    ]
+def dashboard_page(title, body, user=None, message=None, level="info", cart_count=0, active_section="dashboard", nav_items=None, sidebar_widgets="", extra_shell=""):
+    if nav_items is None:
+        nav_items = [
+            ("dashboard", "/dashboard", "Dashboard", "product.png"),
+            ("menu", "/menu", "Menu", "product.png"),
+            ("bag", "/cart", f"Bag ({cart_count})", "package.png"),
+            ("help", "/help", "Help", "search (1).png"),
+        ]
     nav_markup = "".join(
         f"""
         <a class="dashboard-nav-link{' is-active' if key == active_section else ''}" href="{href}">
@@ -2438,6 +2439,9 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
       <nav class="dashboard-nav">
         {nav_markup}
       </nav>
+      <div class="dashboard-sidebar-widgets">
+        {sidebar_widgets}
+      </div>
       <div class="dashboard-sidecard">
         <span class="eyebrow">Account</span>
         <strong>{html.escape(user["name"] if user else "Guest")}</strong>
@@ -2467,8 +2471,103 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
   </div>
   {render_age_gate()}
   {extra_shell}
+  <script>
+    (function () {{
+      document.querySelectorAll('[data-trigger-click]').forEach(function (node) {{
+        node.addEventListener('click', function () {{
+          var target = document.getElementById(node.getAttribute('data-trigger-click'));
+          if (target) {{
+            target.click();
+          }}
+        }});
+      }});
+    }})();
+  </script>
 </body>
 </html>"""
+
+
+def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_count, ticket_count, verification_count, order_chat_count, guest_help_open=0, support_open=0):
+    viewer_role = user["role"]
+    recovery_title = "Engineer Account Recovery" if viewer_role == "helpdesk" else "Admin Account Recovery"
+    payroll_title = "Engineer Payroll Tools" if viewer_role == "helpdesk" else "Payroll Center"
+    account_title = "Engineer Account Manager" if viewer_role == "helpdesk" else "Admin Account Manager"
+    support_widget = ""
+    if viewer_role == "helpdesk":
+        support_widget = f"""
+    <section class="dashboard-widget">
+      <span class="eyebrow">Engineer Inbox</span>
+      <strong>Support + Registration</strong>
+      <span>Support Inbox {support_open}</span>
+      <span>Registration Help {guest_help_open}</span>
+      <a class="button ghost" href="/admin">Open Engineer Tools</a>
+    </section>
+        """
+    return f"""
+    <section class="dashboard-widget">
+      <span class="eyebrow">Finance Tracker</span>
+      <strong>Delivered Sales</strong>
+      <span>Today {format_money(finance["day"])}</span>
+      <span>This Week {format_money(finance["week"])}</span>
+      <span>This Month {format_money(finance["month"])}</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Payroll</span>
+      <strong>{html.escape(payroll_title)}</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-payroll-modal">Open Payroll Widget</button>
+      <span>Employees {payroll["employee_count"]}</span>
+      <span>Weekly Hours {payroll["total_hours"]:.2f}</span>
+      <span>Total Payroll {format_money(payroll["total_payroll"])}</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Account Access</span>
+      <strong>{html.escape(recovery_title)}</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-account-recovery-modal">Open Recovery Widget</button>
+      <span>Reset login credentials, update access, or archive accounts.</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Admin Actions</span>
+      <strong>Sales Center</strong>
+      <button type="button" class="button" data-trigger-click="open-create-account-widget">Create Account</button>
+      <button type="button" class="button ghost" data-trigger-click="open-create-product-widget">Add Menu Item</button>
+      <button type="button" class="button ghost" data-trigger-click="open-delete-product-widget">Remove Product</button>
+      <button type="button" class="button ghost" data-trigger-click="open-create-coupon-widget">Create Coupon</button>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Credits</span>
+      <strong>Issue Credits</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-credit-widget">Open Credit Widget</button>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Payments</span>
+      <strong>Payment Destination Center</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-payment-destination-widget">Open Payment Center</button>
+      <span>Update the payment names, handles, and links shown after orders.</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Latest Budhub Tickets</span>
+      <strong>{ticket_count} total tickets</strong>
+      <span>Customer + staff order visibility</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Order Chat Logs</span>
+      <strong>{order_chat_count} messages</strong>
+      <span>Recent order chat activity</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">ID Verification Queue</span>
+      <strong>{verification_count} pending reviews</strong>
+      <span>Client verification checks waiting</span>
+    </section>
+    <section class="dashboard-widget">
+      <span class="eyebrow">Accounts</span>
+      <strong>{html.escape(account_title)}</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Open Accounts Widget</button>
+      <span>Accounts {user_count}</span>
+      <span>Menu Items {product_count}</span>
+    </section>
+    {support_widget}
+    """
 
 
 def login_form(error="", notice=""):
@@ -6049,25 +6148,53 @@ def render_driver_dashboard(connection, user, message=None, level="info", open_t
 def render_admin_home(connection, user, message=None, level="info"):
     title = "Engineer Dashboard" if user["role"] == "helpdesk" else "Admin Dashboard"
     finance = finance_snapshot(connection)
+    users_total = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+    products_total = connection.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"]
+    tickets_total = connection.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
+    verification_count = connection.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'client' AND verification_status = 'PENDING_REVIEW'").fetchone()["count"]
+    order_chat_count = connection.execute("SELECT COUNT(*) AS count FROM order_messages").fetchone()["count"]
+    guest_help_open = connection.execute("SELECT COUNT(*) AS count FROM guest_help_requests WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "guest_help_requests") else 0
+    support_open = connection.execute("SELECT COUNT(*) AS count FROM support_tickets WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "support_tickets") else 0
+    payroll = payroll_snapshot(connection, connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall(), user_stats_map(connection))
+    sidebar_widgets = render_admin_sidebar_widgets(
+        user,
+        finance,
+        payroll,
+        users_total,
+        products_total,
+        tickets_total,
+        verification_count,
+        order_chat_count,
+        guest_help_open=guest_help_open,
+        support_open=support_open,
+    )
+    nav_items = [
+        ("dashboard", "/dashboard", "Dashboard", "product.png"),
+        ("tools", "/admin", "Admin Tools", "package.png"),
+        ("menu", "/menu", "Menu", "search (1).png"),
+    ]
     body = f"""
-    <section class="stats-row">
-      <div class="stat-card"><span>Total Accounts</span><strong>{connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]}</strong></div>
-      <div class="stat-card"><span>Menu Items</span><strong>{connection.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"]}</strong></div>
-      <div class="stat-card"><span>Budhub Tickets</span><strong>{connection.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]}</strong></div>
-      <div class="stat-card"><span>Open Bag Lines</span><strong>{connection.execute("SELECT COUNT(*) AS count FROM cart_items").fetchone()["count"]}</strong></div>
-      <div class="stat-card"><span>Sales Today</span><strong>{format_money(finance["day"])}</strong></div>
-      <div class="stat-card"><span>Sales This Week</span><strong>{format_money(finance["week"])}</strong></div>
-      <div class="stat-card"><span>Sales This Month</span><strong>{format_money(finance["month"])}</strong></div>
-    </section>
-    <section class="admin-grid">
+    <section class="panel dashboard-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">{html.escape(title)}</span>
+          <h2>Budhub operations overview</h2>
+        </div>
+      </div>
+      <div class="dashboard-analytics-grid">
+        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('product.png')}" alt="Accounts"></div><div><span>Total Accounts</span><strong>{users_total}</strong></div></article>
+        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Menu Items"></div><div><span>Menu Items</span><strong>{products_total}</strong></div></article>
+        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Budhub Tickets"></div><div><span>Budhub Tickets</span><strong>{tickets_total}</strong></div></article>
+        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('search (1).png')}" alt="Verification"></div><div><span>ID Reviews</span><strong>{verification_count}</strong></div></article>
+      </div>
       <section class="panel">
         <span class="eyebrow">{html.escape(title)}</span>
         <h2>Budhub operations overview</h2>
-        <div class="hero-actions"><a class="button" href="/admin">Open Admin Tools</a><a class="button ghost" href="/">View Customer Menu</a></div>
+        <div class="hero-actions"><a class="button" href="/admin">Open Admin Tools</a><a class="button ghost" href="/menu">View Customer Menu</a></div>
       </section>
     </section>
     """
-    return page(title, body, user=user, message=message, level=level, auto_refresh=True, extra_shell=render_admin_activity_widget(connection, user))
+    return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
 
 
 def render_admin_dashboard(connection, user, message=None, level="info"):
@@ -6092,6 +6219,23 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
         """
     ).fetchall()
     title = "Engineer Tools" if user["role"] == "helpdesk" else "Admin Tools"
+    sidebar_widgets = render_admin_sidebar_widgets(
+        user,
+        finance,
+        payroll,
+        len(users),
+        len(products),
+        len(tickets),
+        len(verification_queue),
+        len(order_chat_logs),
+        guest_help_open=sum(1 for request in guest_help if request["status"] != "CLOSED"),
+        support_open=sum(1 for ticket in support if ticket["status"] != "CLOSED"),
+    )
+    nav_items = [
+        ("dashboard", "/dashboard", "Dashboard", "product.png"),
+        ("tools", "/admin", "Admin Tools", "package.png"),
+        ("menu", "/menu", "Menu", "search (1).png"),
+    ]
     engineer_stats = ""
     engineer_sections = ""
     if user["role"] == "helpdesk":
@@ -6159,16 +6303,6 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     body = f"""
     {render_account_stats_panel(connection, user)}
     {render_staff_clock_panel(connection, user)}
-    <section class="stats-row">
-      <div class="stat-card"><span>Total Accounts</span><strong>{len(users)}</strong></div>
-      <div class="stat-card"><span>Menu Items</span><strong>{len(products)}</strong></div>
-      <div class="stat-card"><span>Budhub Tickets</span><strong>{len(tickets)}</strong></div>
-      <div class="stat-card"><span>ID Reviews</span><strong>{len(verification_queue)}</strong></div>
-      <div class="stat-card"><span>Sales Today</span><strong>{format_money(finance["day"])}</strong></div>
-      <div class="stat-card"><span>Sales This Week</span><strong>{format_money(finance["week"])}</strong></div>
-      <div class="stat-card"><span>Sales This Month</span><strong>{format_money(finance["month"])}</strong></div>
-      {engineer_stats}
-    </section>
     <section class="panel">
       <h2>Finance Tracker</h2>
       <div class="stats-row">
@@ -6234,7 +6368,7 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     {render_account_management_widget(users, user_stats, user["role"])}
     {engineer_sections}
     """
-    return page(title, body, user=user, message=message, level=level, auto_refresh=True, extra_shell=render_admin_activity_widget(connection, user))
+    return dashboard_page(title, body, user=user, message=message, level=level, active_section="tools", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
 
 
 def render_helpdesk_dashboard(connection, user, message=None, level="info"):
@@ -6372,7 +6506,7 @@ def handle_login(environ, start_response, connection):
     log_activity(connection, user, "LOGIN", "Signed into Budhub.")
     token = create_session(connection, user["id"])
     connection.commit()
-    destination = "/" if user["role"] == "client" else "/dashboard"
+    destination = "/dashboard"
     return redirect(start_response, destination, f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax")
 
 
