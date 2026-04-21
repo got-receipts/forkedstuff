@@ -1395,6 +1395,7 @@ th {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  position: relative;
 }
 
 .dashboard-topbar-user strong {
@@ -1418,6 +1419,59 @@ th {
   width: auto;
   min-width: 0;
   padding: 0.6rem 0.9rem;
+}
+
+.dashboard-account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-account-trigger:hover strong,
+.dashboard-account-trigger:focus-visible strong {
+  color: #d1fadf;
+}
+
+.dashboard-account-menu {
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.55rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.16)),
+    #2f2f2f;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.34);
+}
+
+.dashboard-account-menu-link {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  background: transparent;
+  color: #f7f8f3;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-account-menu-link:hover {
+  background: rgba(18, 183, 106, 0.14);
+  color: #d1fadf;
 }
 
 .dashboard-avatar {

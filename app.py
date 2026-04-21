@@ -2427,6 +2427,9 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
         activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-staff-activity-widget">Activity</button>'
     elif user and user["role"] == "client":
         activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-activity-widget">Activity</button>'
+    account_menu_actions = '<a class="dashboard-account-menu-link" href="/logout">Logout</a>'
+    if user and user["role"] == "client":
+        account_menu_actions = '<button type="button" class="dashboard-account-menu-link" data-trigger-click="open-client-profile-widget">Edit Profile</button><a class="dashboard-account-menu-link" href="/logout">Logout</a>'
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2462,13 +2465,17 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
           <h1>{html.escape(title)}</h1>
         </div>
         <div class="dashboard-topbar-user">
-          <div class="dashboard-avatar">{html.escape(user_initials(user["name"] if user else ""))}</div>
-          <div>
-            <strong>{html.escape(user["name"] if user else "Guest")}</strong>
-            <span>{html.escape(role_label)}</span>
-          </div>
+          <button type="button" class="dashboard-account-trigger" id="dashboard-account-trigger" aria-expanded="false" aria-controls="dashboard-account-menu">
+            <div class="dashboard-avatar">{html.escape(user_initials(user["name"] if user else ""))}</div>
+            <div>
+              <strong>{html.escape(user["name"] if user else "Guest")}</strong>
+              <span>{html.escape(role_label)}</span>
+            </div>
+          </button>
           {activity_button}
-          <a class="button ghost dashboard-topbar-logout" href="/logout">Logout</a>
+          <div class="dashboard-account-menu is-hidden" id="dashboard-account-menu">
+            {account_menu_actions}
+          </div>
         </div>
       </header>
       <main class="dashboard-main">
@@ -2493,6 +2500,34 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
             target.click();
           }}
         }});
+      }});
+    }})();
+    (function () {{
+      var trigger = document.getElementById('dashboard-account-trigger');
+      var menu = document.getElementById('dashboard-account-menu');
+      if (!trigger || !menu) {{
+        return;
+      }}
+      function closeMenu() {{
+        menu.classList.add('is-hidden');
+        trigger.setAttribute('aria-expanded', 'false');
+      }}
+      trigger.addEventListener('click', function (event) {{
+        event.stopPropagation();
+        var isHidden = menu.classList.contains('is-hidden');
+        menu.classList.toggle('is-hidden', !isHidden);
+        trigger.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+      }});
+      menu.addEventListener('click', function (event) {{
+        if (event.target.hasAttribute('data-trigger-click')) {{
+          closeMenu();
+        }}
+      }});
+      document.addEventListener('click', closeMenu);
+      document.addEventListener('keydown', function (event) {{
+        if (event.key === 'Escape') {{
+          closeMenu();
+        }}
       }});
     }})();
   </script>
@@ -5593,8 +5628,8 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
       </div>
       <div class="order-card-grid">{''.join(cards) if cards else '<p>No orders yet.</p>'}</div>
     </section>
-    {render_client_profile_widget(user)}
     """
+    client_profile_shell = f'<div class="dashboard-hidden-widgets">{render_client_profile_widget(user)}</div>'
     return dashboard_page(
         "Customer Dashboard",
         body,
@@ -5603,7 +5638,7 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
         level=level,
         cart_count=client_cart_count(connection, user["id"]),
         active_section="dashboard",
-        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_ticket_modal_script(open_ticket_id) + render_order_success_widget(message, open_ticket),
+        extra_shell=client_profile_shell + render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_ticket_modal_script(open_ticket_id) + render_order_success_widget(message, open_ticket),
     )
 
 
