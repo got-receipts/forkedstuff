@@ -2495,8 +2495,10 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
     <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Engineer Tools</span>
       <strong>Support + Registration</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
-      <a class="button ghost" href="/admin">Open Engineer Tools</a>
+      <div class="dashboard-action-list">
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-account-manager-modal">Accounts</button>
+        <a class="dashboard-action-link" href="/admin">Open Engineer Tools</a>
+      </div>
       <div class="dashboard-widget-statline"><span>Inbox</span><strong>{support_open}</strong></div>
       <div class="dashboard-widget-statline"><span>Registration</span><strong>{guest_help_open}</strong></div>
     </section>
@@ -2505,23 +2507,29 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
     <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Finance</span>
       <strong>Operations</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-payroll-modal">Payroll</button>
-      <button type="button" class="button ghost" data-trigger-click="open-credit-widget">Credits</button>
-      <button type="button" class="button ghost" data-trigger-click="open-payment-destination-widget">Payments</button>
+      <div class="dashboard-action-list">
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-payroll-modal">Payroll</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-credit-widget">Credits</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-payment-destination-widget">Payments</button>
+      </div>
     </section>
     <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Account Access</span>
       <strong>Recovery + Accounts</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-account-recovery-modal">Recovery</button>
-      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
+      <div class="dashboard-action-list">
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-account-recovery-modal">Recovery</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-account-manager-modal">Accounts</button>
+      </div>
     </section>
     <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Sales Center</span>
       <strong>Catalog + Coupons</strong>
-      <button type="button" class="button" data-trigger-click="open-create-account-widget">Create Account</button>
-      <button type="button" class="button ghost" data-trigger-click="open-create-product-widget">Add Menu Item</button>
-      <button type="button" class="button ghost" data-trigger-click="open-delete-product-widget">Remove Product</button>
-      <button type="button" class="button ghost" data-trigger-click="open-create-coupon-widget">Create Coupon</button>
+      <div class="dashboard-action-list">
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-create-account-widget">Create Account</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-create-product-widget">Add Menu Item</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-delete-product-widget">Remove Product</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-create-coupon-widget">Create Coupon</button>
+      </div>
     </section>
     {support_widget}
     """

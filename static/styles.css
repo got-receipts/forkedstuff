@@ -1281,6 +1281,11 @@ th {
   gap: 0.55rem;
 }
 
+.dashboard-action-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
 .dashboard-widget strong {
   color: #ffffff;
 }
@@ -1297,6 +1302,28 @@ th {
   min-width: 0;
   padding: 0.65rem 0.8rem;
   font-size: 0.92rem;
+}
+
+.dashboard-action-link {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  padding: 0.45rem 0;
+  background: transparent;
+  color: #f7f8f3;
+  font: inherit;
+  font-size: 0.93rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dashboard-action-link:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-action-link:hover {
+  color: #d1fadf;
 }
 
 .dashboard-widget-statline {
