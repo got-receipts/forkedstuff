@@ -1396,16 +1396,26 @@ th {
   align-items: center;
   gap: 0.8rem;
   position: relative;
+  min-width: 0;
 }
 
 .dashboard-topbar-user strong {
   display: block;
   color: #ffffff;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-topbar-user span {
+  display: block;
   color: #d4dbc7;
   font-size: 0.92rem;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-topbar-logout {
@@ -1425,13 +1435,20 @@ th {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  min-width: 0;
+  max-width: 230px;
   border: 0;
-  background: transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
   color: inherit;
-  padding: 0;
+  padding: 0.25rem 0.7rem 0.25rem 0.25rem;
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.dashboard-account-trigger > div:last-child {
+  min-width: 0;
 }
 
 .dashboard-account-trigger:hover strong,
@@ -1671,6 +1688,17 @@ th {
 
   .dashboard-topbar-user {
     width: 100%;
+    justify-content: space-between;
+    gap: 0.55rem;
+  }
+
+  .dashboard-account-trigger {
+    max-width: min(68vw, 230px);
+  }
+
+  .dashboard-topbar-user strong,
+  .dashboard-topbar-user span {
+    max-width: 120px;
   }
 
   .dashboard-nav {
