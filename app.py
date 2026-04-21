@@ -2298,9 +2298,6 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
         <span class="eyebrow">Navigation</span>
         <button type="button" class="button ghost" data-drawer-close="yes">Close</button>
       </div>
-      <nav class="landing-drawer-links">
-        <a href="/menu" data-drawer-close="yes">Live Menu</a>
-      </nav>
       <div class="landing-drawer-grid">
         <a class="landing-drawer-card" href="/">
           <img src="{landing_asset_url('home.png')}" alt="Home">
@@ -4685,7 +4682,6 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             <img src="{landing_asset_url(icon_name)}" alt="{html.escape(label)} icon">
             <div>
               <strong>{html.escape(label)}</strong>
-              <span>{category_counts.get(label, 0)} live items</span>
             </div>
           </div>
           <img class="landing-experience-photo" src="{landing_asset_url(photo_name)}" alt="{html.escape(label)} category">
