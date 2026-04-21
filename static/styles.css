@@ -1791,6 +1791,7 @@ th {
   transform: translate3d(0, -86px, 0) rotateX(18deg) rotateZ(-2deg) scale(0.96);
   transform-origin: 50% 0%;
   filter: blur(8px) saturate(0.8);
+  animation: none !important;
   transition:
     opacity 0.18s ease var(--fall-delay, 0ms),
     filter 0.75s ease var(--fall-delay, 0ms),
@@ -1817,6 +1818,11 @@ th {
   opacity: 0;
 }
 
+.landing-section-head.fall-into-place,
+.landing-drops-head.fall-into-place,
+.landing-experience-card.fall-into-place,
+.landing-featured-logo.fall-into-place,
+.landing-brand-card.fall-into-place,
 .landing-drop-card.fall-into-place,
 .product-card.fall-into-place {
   position: relative;
@@ -1824,6 +1830,11 @@ th {
   perspective: 900px;
 }
 
+.landing-section-head.fall-into-place::after,
+.landing-drops-head.fall-into-place::after,
+.landing-experience-card.fall-into-place::after,
+.landing-featured-logo.fall-into-place::after,
+.landing-brand-card.fall-into-place::after,
 .landing-drop-card.fall-into-place::after,
 .product-card.fall-into-place::after {
   content: "";
@@ -1835,6 +1846,11 @@ th {
   opacity: 0;
 }
 
+.landing-section-head.fall-into-place.is-visible::after,
+.landing-drops-head.fall-into-place.is-visible::after,
+.landing-experience-card.fall-into-place.is-visible::after,
+.landing-featured-logo.fall-into-place.is-visible::after,
+.landing-brand-card.fall-into-place.is-visible::after,
 .landing-drop-card.fall-into-place.is-visible::after,
 .product-card.fall-into-place.is-visible::after {
   animation: product-card-sheen 0.95s ease var(--fall-delay, 0ms) 1;
@@ -2227,9 +2243,15 @@ th {
     opacity: 1;
     transform: none;
     filter: none;
+    animation: none !important;
     transition: none;
   }
 
+  .landing-section-head.fall-into-place.is-visible::after,
+  .landing-drops-head.fall-into-place.is-visible::after,
+  .landing-experience-card.fall-into-place.is-visible::after,
+  .landing-featured-logo.fall-into-place.is-visible::after,
+  .landing-brand-card.fall-into-place.is-visible::after,
   .landing-drop-card.fall-into-place.is-visible::after,
   .product-card.fall-into-place.is-visible::after {
     animation: none;

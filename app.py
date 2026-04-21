@@ -4902,7 +4902,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         category_counts[category] = category_counts.get(category, 0) + 1
     experience_markup = "".join(
         f"""
-        <a class="landing-experience-card" href="{html.escape(store_url(filters, category=label, strain='All').replace('/', '/menu', 1) if user else '/login')}">
+        <a class="landing-experience-card fall-into-place" href="{html.escape(store_url(filters, category=label, strain='All').replace('/', '/menu', 1) if user else '/login')}">
           <div class="landing-experience-title">
             <img src="{landing_asset_url(icon_name)}" alt="{html.escape(label)} icon">
             <div>
@@ -4923,7 +4923,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         "marijuana-mania.jpg",
     ]
     featured_markup = "".join(
-        f'<div class="landing-featured-logo"><img src="{landing_asset_url(filename)}" alt="Featured partner logo"></div>'
+        f'<div class="landing-featured-logo fall-into-place"><img src="{landing_asset_url(filename)}" alt="Featured partner logo"></div>'
         for filename in featured_assets
     )
     showcase_products = products[:9]
@@ -4943,7 +4943,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
     )
     brand_assets = ["brand1.jpeg", "brand2.jpeg", "brand3.jpeg", "brand4.jpeg", "brand5.jpeg", "brand6.jpeg", "brand7.jpeg", "brand8.jpeg"]
     brand_markup = "".join(
-        f'<div class="landing-brand-card"><img src="{landing_asset_url(filename)}" alt="Brand logo"></div>'
+        f'<div class="landing-brand-card fall-into-place"><img src="{landing_asset_url(filename)}" alt="Brand logo"></div>'
         for filename in brand_assets
     )
     strain_controls = f"""
@@ -5088,8 +5088,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
       </div>
     </section>
     <section class="landing-section reveal-on-scroll" id="experience">
-      <div class="landing-section-head landing-section-head-centered">
-        <span class="eyebrow">Start Your Experience</span>
+      <div class="landing-section-head landing-section-head-centered fall-into-place">
         <h2>Start your experience</h2>
       </div>
       <div class="landing-experience-grid">
@@ -5097,7 +5096,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
       </div>
     </section>
     <section class="landing-section landing-section-featured reveal-on-scroll" id="featured">
-      <div class="landing-section-head landing-section-head-centered">
+      <div class="landing-section-head landing-section-head-centered fall-into-place">
         <span class="eyebrow">Featured In</span>
         <h2>Featured in</h2>
       </div>
@@ -5108,7 +5107,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
     <section class="landing-drops reveal-on-scroll" id="drops">
       <div class="landing-drops-panel"></div>
       <div class="landing-drops-content">
-        <div class="landing-drops-head">
+        <div class="landing-drops-head fall-into-place">
           <div>
             <span class="eyebrow">New Drops</span>
             <h2>Available now!</h2>
@@ -5116,12 +5115,12 @@ def render_store_page(connection, user=None, message=None, level="info", filters
           <a href="{auth_menu_link}">See all</a>
         </div>
         <div class="landing-drops-grid">
-          {showcase_markup if showcase_markup else f'<article class="landing-drop-card landing-drop-card-empty"><div class="landing-drop-card-copy"><strong>Menu loading</strong><span>Add products to show live drops here.</span></div></article>'}
+          {showcase_markup if showcase_markup else f'<article class="landing-drop-card landing-drop-card-empty fall-into-place"><div class="landing-drop-card-copy"><strong>Menu loading</strong><span>Add products to show live drops here.</span></div></article>'}
         </div>
       </div>
     </section>
     <section class="landing-section reveal-on-scroll" id="brands">
-      <div class="landing-section-head">
+      <div class="landing-section-head fall-into-place">
         <span class="eyebrow">Brands</span>
         <h2>Brands we carry</h2>
       </div>
