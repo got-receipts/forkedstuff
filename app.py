@@ -2442,11 +2442,6 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
       <div class="dashboard-sidebar-widgets">
         {sidebar_widgets}
       </div>
-      <div class="dashboard-sidecard">
-        <span class="eyebrow">Account</span>
-        <strong>{html.escape(user["name"] if user else "Guest")}</strong>
-        <span>{html.escape(role_label)}</span>
-      </div>
     </aside>
     <div class="dashboard-content-shell">
       <header class="dashboard-topbar">
@@ -2467,6 +2462,10 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
         {flash_message(message, level)}
         {body}
       </main>
+      <footer class="dashboard-footer">
+        <span>Copyright BudHub 2026</span>
+        <span>NYS OCM Compliance notice. Must be 21 years of age to purchase. Smoke responsibly.</span>
+      </footer>
     </div>
   </div>
   {render_age_gate()}
@@ -2519,6 +2518,7 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
       <div class="dashboard-action-list">
         <button type="button" class="dashboard-action-link" data-trigger-click="open-account-recovery-modal">Recovery</button>
         <button type="button" class="dashboard-action-link" data-trigger-click="open-account-manager-modal">Accounts</button>
+        <button type="button" class="dashboard-action-link" data-trigger-click="open-pending-accounts-modal">Pending Accounts <span>{verification_count}</span></button>
       </div>
     </section>
     <section class="dashboard-widget dashboard-widget-actions">
@@ -2574,6 +2574,113 @@ def render_admin_overview_cards(user, finance, payroll, user_count, product_coun
       <div><span>Menu Items {product_count}</span></div>
     </article>
     {support_widget}
+    """
+
+
+def render_pending_accounts_widget(verification_queue):
+    return f"""
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Account Access</span>
+          <h2>Pending Accounts</h2>
+        </div>
+        <button type="button" class="button ghost" id="open-pending-accounts-modal">Open Pending Accounts</button>
+      </div>
+    </section>
+    <div class="modal-shell is-hidden" id="pending-accounts-modal">
+      <div class="modal-backdrop" data-close-pending-accounts="yes"></div>
+      <div class="modal-card modal-card-wide">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Account Verification</span>
+            <h3>Pending Accounts</h3>
+          </div>
+          <button type="button" class="button ghost modal-close" data-close-pending-accounts="yes">Close</button>
+        </div>
+        <div class="order-card-grid">
+          {''.join(
+              f'''
+              <article class="order-card">
+                <div class="order-card-head">
+                  <div><span class="eyebrow">{html.escape(account["email"])}</span><h3>{html.escape(account["name"])}</h3></div>
+                  <span class="badge badge-review_required">Pending Review</span>
+                </div>
+                <div class="order-meta">
+                  <span>Created: {html.escape(account["created_at"])}</span>
+                  <span>Status: {html.escape(account["verification_status"])}</span>
+                </div>
+                <div class="verification-grid">
+                  <a class="verification-card" href="{html.escape(account["id_front_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_front_path"] or "")}" alt="ID front"><span>ID Front</span></a>
+                  <a class="verification-card" href="{html.escape(account["id_back_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_back_path"] or "")}" alt="ID back"><span>ID Back</span></a>
+                  <a class="verification-card" href="{html.escape(account["id_selfie_path"] or "#")}" target="_blank"><img src="{html.escape(account["id_selfie_path"] or "")}" alt="Selfie holding ID"><span>Selfie With ID</span></a>
+                </div>
+                <form method="post" action="/users/verify" class="action-stack">
+                  <input type="hidden" name="user_id" value="{account["id"]}">
+                  <label>Admin Note<textarea name="note" placeholder="Optional approval note or required rejection note"></textarea></label>
+                  <div class="card-buttons">
+                    <button type="submit" name="decision" value="approve">Approve Account</button>
+                    <button type="submit" name="decision" value="reject" class="danger">Reject Account</button>
+                  </div>
+                </form>
+              </article>
+              '''
+              for account in verification_queue
+          ) or '<p>No pending ID reviews.</p>'}
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {{
+        var openButton = document.getElementById('open-pending-accounts-modal');
+        var modal = document.getElementById('pending-accounts-modal');
+        if (!openButton || !modal) {{
+          return;
+        }}
+        function closeModal() {{
+          modal.classList.add('is-hidden');
+        }}
+        openButton.addEventListener('click', function () {{
+          modal.classList.remove('is-hidden');
+        }});
+        modal.querySelectorAll('[data-close-pending-accounts="yes"]').forEach(function (node) {{
+          node.addEventListener('click', closeModal);
+        }});
+      }})();
+    </script>
+    """
+
+
+def render_admin_dashboard_activity_sections(tickets, order_chat_logs):
+    return f"""
+    <section class="panel">
+      <h2>Latest Budhub Tickets</h2>
+      <table>
+        <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
+        <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
+      </table>
+    </section>
+    <section class="panel">
+      <h2>Order Chat Logs</h2>
+      <div class="order-card-grid">
+        {''.join(f"<article class='order-card'><div class='order-card-head'><div><span class='eyebrow'>{html.escape(message['ticket_number'])}</span><h3>{html.escape(message['author_name'])}</h3></div><span class='menu-count'>{html.escape(message['created_at'])}</span></div><div class='order-meta'><span>Role: {html.escape(ROLE_LABELS.get(message['author_role'], message['author_role']))}</span></div><div class='reason-box'>{html.escape(message['message'])}</div></article>" for message in order_chat_logs) or '<p>No order chat messages yet.</p>'}
+      </div>
+    </section>
+    """
+
+
+def render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue):
+    return f"""
+    <div class="dashboard-hidden-widgets">
+      {render_payroll_widget(payroll, user["role"])}
+      {render_account_recovery_widget(users, user["role"])}
+      {render_admin_creation_widgets(leafly_strains, coupons, products)}
+      {render_credit_issue_panel(connection)}
+      {render_payment_destination_widget(connection)}
+      {render_account_management_widget(users, user_stats, user["role"])}
+      {render_pending_accounts_widget(verification_queue)}
+      {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
+    </div>
     """
 
 
@@ -6155,14 +6262,28 @@ def render_driver_dashboard(connection, user, message=None, level="info", open_t
 def render_admin_home(connection, user, message=None, level="info"):
     title = "Engineer Dashboard" if user["role"] == "helpdesk" else "Admin Dashboard"
     finance = finance_snapshot(connection)
-    users_total = connection.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
-    products_total = connection.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"]
-    tickets_total = connection.execute("SELECT COUNT(*) AS count FROM tickets").fetchone()["count"]
-    verification_count = connection.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'client' AND verification_status = 'PENDING_REVIEW'").fetchone()["count"]
-    order_chat_count = connection.execute("SELECT COUNT(*) AS count FROM order_messages").fetchone()["count"]
+    users = connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    products = connection.execute("SELECT * FROM products ORDER BY created_at DESC").fetchall()
+    tickets = ticket_rows(connection)
+    coupons = coupon_rows(connection)
+    leafly_strains = leafly_strain_rows(connection)
+    user_stats = user_stats_map(connection)
+    order_chat_logs = recent_order_messages(connection)
+    verification_queue = connection.execute(
+        """
+        SELECT * FROM users
+        WHERE role = 'client' AND verification_status = 'PENDING_REVIEW'
+        ORDER BY created_at ASC
+        """
+    ).fetchall()
+    users_total = len(users)
+    products_total = len(products)
+    tickets_total = len(tickets)
+    verification_count = len(verification_queue)
+    order_chat_count = len(order_chat_logs)
     guest_help_open = connection.execute("SELECT COUNT(*) AS count FROM guest_help_requests WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "guest_help_requests") else 0
     support_open = connection.execute("SELECT COUNT(*) AS count FROM support_tickets WHERE status != 'CLOSED'").fetchone()["count"] if table_exists(connection, "support_tickets") else 0
-    payroll = payroll_snapshot(connection, connection.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall(), user_stats_map(connection))
+    payroll = payroll_snapshot(connection, users, user_stats)
     sidebar_widgets = render_admin_sidebar_widgets(
         user,
         finance,
@@ -6209,6 +6330,8 @@ def render_admin_home(connection, user, message=None, level="info"):
         {overview_cards}
       </div>
     </section>
+    {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
+    {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
     """
     return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))
 
@@ -6388,6 +6511,9 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
       </div>
     </section>
     {render_account_management_widget(users, user_stats, user["role"])}
+    <div class="dashboard-hidden-widgets">
+      {render_pending_accounts_widget(verification_queue)}
+    </div>
     {engineer_sections}
     """
     return dashboard_page(title, body, user=user, message=message, level=level, active_section="dashboard", nav_items=nav_items, sidebar_widgets=sidebar_widgets, extra_shell=render_admin_activity_widget(connection, user))

@@ -1231,7 +1231,7 @@ th {
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.18)),
     #2f2f2f;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto 1fr;
   gap: 0.9rem;
   box-shadow: 18px 0 40px rgba(0, 0, 0, 0.18);
 }
@@ -1383,7 +1383,7 @@ th {
 .dashboard-content-shell {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
 }
 
 .dashboard-topbar {
@@ -1442,6 +1442,27 @@ th {
 
 .dashboard-main {
   padding: 2rem;
+}
+
+.dashboard-footer {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  padding: 1rem 2rem 1.4rem;
+  color: rgba(247, 248, 243, 0.62);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.dashboard-hidden-widgets > .panel,
+.dashboard-hidden-widgets > .admin-grid {
+  display: none;
+}
+
+.dashboard-action-link span {
+  float: right;
+  color: #9effb5;
 }
 
 .dashboard-analytics-grid {
