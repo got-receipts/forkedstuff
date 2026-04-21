@@ -2704,7 +2704,7 @@ def render_admin_dashboard_activity_sections(tickets, order_chat_logs):
         <h2>Latest Budhub Tickets</h2>
         <table>
           <thead><tr><th>Ticket</th><th>Customer</th><th>Status</th><th>Total</th></tr></thead>
-          <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan=\"4\">No tickets yet.</td></tr>'}</tbody>
+          <tbody>{''.join(f"<tr><td>{html.escape(ticket['ticket_number'])}</td><td>{html.escape(ticket['client_name'])}</td><td>{status_badge(ticket['status'])}</td><td>{format_money(ticket['total_amount'])}</td></tr>" for ticket in tickets[:8]) or '<tr><td colspan="4">No tickets yet.</td></tr>'}</tbody>
         </table>
       </section>
       <section class="panel">
@@ -3959,6 +3959,30 @@ def render_account_management_widget(users, user_stats, viewer_role):
 
 def render_payroll_widget(payroll, viewer_role):
     title = "Engineer Payroll Tools" if viewer_role == "helpdesk" else "Payroll Center"
+    payroll_cards = []
+    for row in payroll["rows"]:
+        user_row = row["user"]
+        role_name = ROLE_LABELS.get(user_row["role"], user_row["role"])
+        weekly_hours = f"{float(row['weekly_hours'] or 0):.2f}"
+        payroll_cards.append(
+            f"""
+            <article class='order-card'>
+              <div class='order-card-head'>
+                <div><span class='eyebrow'>{html.escape(role_name)}</span><h3>{html.escape(user_row['name'])}</h3></div>
+                <span class='menu-count'>{format_money(row['weekly_pay'])}</span>
+              </div>
+              <div class='order-meta'>
+                <span>Email: {html.escape(user_row['email'])}</span>
+                <span>Hourly Rate: {format_money(row['hourly_rate'])}</span>
+                <span>Weekly Hours: {weekly_hours}</span>
+                <span>Total Trips: {row['total_trips']}</span>
+                <span>Orders Picked: {row['total_orders_picked']}</span>
+                <span>Orders Dispatched: {row['total_orders_dispatched']}</span>
+              </div>
+            </article>
+            """
+        )
+    payroll_rows_markup = "".join(payroll_cards) or "<p>No employees are enabled for payroll yet.</p>"
     return f"""
     <section class="panel">
       <div class="panel-head">
@@ -3990,25 +4014,7 @@ def render_payroll_widget(payroll, viewer_role):
           <div class="stat-card"><span>Total Payroll</span><strong>{format_money(payroll["total_payroll"])}</strong></div>
         </div>
         <div class="order-card-grid">
-          {''.join(
-              f"""
-              <article class='order-card'>
-                <div class='order-card-head'>
-                  <div><span class='eyebrow'>{html.escape(ROLE_LABELS.get(row['user']['role'], row['user']['role']))}</span><h3>{html.escape(row['user']['name'])}</h3></div>
-                  <span class='menu-count'>{format_money(row['weekly_pay'])}</span>
-                </div>
-                <div class='order-meta'>
-                  <span>Email: {html.escape(row['user']['email'])}</span>
-                  <span>Hourly Rate: {format_money(row['hourly_rate'])}</span>
-                  <span>Weekly Hours: {row['weekly_hours']:.2f}</span>
-                  <span>Total Trips: {row['total_trips']}</span>
-                  <span>Orders Picked: {row['total_orders_picked']}</span>
-                  <span>Orders Dispatched: {row['total_orders_dispatched']}</span>
-                </div>
-              </article>
-              """
-              for row in payroll["rows"]
-          ) or "<p>No employees are enabled for payroll yet.</p>"}
+          {payroll_rows_markup}
         </div>
       </div>
     </div>
