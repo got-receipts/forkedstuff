@@ -1277,6 +1277,10 @@ th {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.dashboard-widget-actions {
+  gap: 0.7rem;
+}
+
 .dashboard-widget strong {
   color: #ffffff;
 }
@@ -1408,6 +1412,11 @@ th {
     #343434;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.2);
+}
+
+.dashboard-analytics-card-stack {
+  align-items: start;
+  flex-direction: column;
 }
 
 .dashboard-analytics-card span {

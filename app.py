@@ -2490,82 +2490,102 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
 def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_count, ticket_count, verification_count, order_chat_count, guest_help_open=0, support_open=0):
     viewer_role = user["role"]
     recovery_title = "Engineer Account Recovery" if viewer_role == "helpdesk" else "Admin Account Recovery"
-    payroll_title = "Engineer Payroll Tools" if viewer_role == "helpdesk" else "Payroll Center"
-    account_title = "Engineer Account Manager" if viewer_role == "helpdesk" else "Admin Account Manager"
     support_widget = ""
     if viewer_role == "helpdesk":
         support_widget = f"""
-    <section class="dashboard-widget">
-      <span class="eyebrow">Engineer Inbox</span>
+    <section class="dashboard-widget dashboard-widget-actions">
+      <span class="eyebrow">Engineer Tools</span>
       <strong>Support + Registration</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
+      <a class="button ghost" href="/admin">Open Engineer Tools</a>
       <span>Support Inbox {support_open}</span>
       <span>Registration Help {guest_help_open}</span>
-      <a class="button ghost" href="/admin">Open Engineer Tools</a>
     </section>
         """
     return f"""
-    <section class="dashboard-widget">
-      <span class="eyebrow">Finance Tracker</span>
-      <strong>Delivered Sales</strong>
-      <span>Today {format_money(finance["day"])}</span>
-      <span>This Week {format_money(finance["week"])}</span>
-      <span>This Month {format_money(finance["month"])}</span>
+    <section class="dashboard-widget dashboard-widget-actions">
+      <span class="eyebrow">Finance</span>
+      <strong>Operations</strong>
+      <button type="button" class="button ghost" data-trigger-click="open-payroll-modal">Payroll</button>
+      <button type="button" class="button ghost" data-trigger-click="open-credit-widget">Credits</button>
+      <button type="button" class="button ghost" data-trigger-click="open-payment-destination-widget">Payments</button>
     </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Payroll</span>
-      <strong>{html.escape(payroll_title)}</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-payroll-modal">Open Payroll Widget</button>
-      <span>Employees {payroll["employee_count"]}</span>
-      <span>Weekly Hours {payroll["total_hours"]:.2f}</span>
-      <span>Total Payroll {format_money(payroll["total_payroll"])}</span>
-    </section>
-    <section class="dashboard-widget">
+    <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Account Access</span>
       <strong>{html.escape(recovery_title)}</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-account-recovery-modal">Open Recovery Widget</button>
-      <span>Reset login credentials, update access, or archive accounts.</span>
+      <button type="button" class="button ghost" data-trigger-click="open-account-recovery-modal">Recovery</button>
+      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
     </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Admin Actions</span>
-      <strong>Sales Center</strong>
+    <section class="dashboard-widget dashboard-widget-actions">
+      <span class="eyebrow">Sales Center</span>
+      <strong>Catalog + Coupons</strong>
       <button type="button" class="button" data-trigger-click="open-create-account-widget">Create Account</button>
       <button type="button" class="button ghost" data-trigger-click="open-create-product-widget">Add Menu Item</button>
       <button type="button" class="button ghost" data-trigger-click="open-delete-product-widget">Remove Product</button>
       <button type="button" class="button ghost" data-trigger-click="open-create-coupon-widget">Create Coupon</button>
     </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Credits</span>
-      <strong>Issue Credits</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-credit-widget">Open Credit Widget</button>
-    </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Payments</span>
-      <strong>Payment Destination Center</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-payment-destination-widget">Open Payment Center</button>
-      <span>Update the payment names, handles, and links shown after orders.</span>
-    </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Latest Budhub Tickets</span>
-      <strong>{ticket_count} total tickets</strong>
-      <span>Customer + staff order visibility</span>
-    </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Order Chat Logs</span>
-      <strong>{order_chat_count} messages</strong>
-      <span>Recent order chat activity</span>
-    </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">ID Verification Queue</span>
-      <strong>{verification_count} pending reviews</strong>
-      <span>Client verification checks waiting</span>
-    </section>
-    <section class="dashboard-widget">
-      <span class="eyebrow">Accounts</span>
-      <strong>{html.escape(account_title)}</strong>
-      <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Open Accounts Widget</button>
-      <span>Accounts {user_count}</span>
-      <span>Menu Items {product_count}</span>
-    </section>
+    {support_widget}
+    """
+
+
+def render_admin_overview_cards(user, finance, payroll, user_count, product_count, ticket_count, verification_count, order_chat_count, guest_help_open=0, support_open=0):
+    viewer_role = user["role"]
+    recovery_title = "Engineer Account Recovery" if viewer_role == "helpdesk" else "Admin Account Recovery"
+    payroll_title = "Engineer Payroll Tools" if viewer_role == "helpdesk" else "Payroll Center"
+    account_title = "Engineer Account Manager" if viewer_role == "helpdesk" else "Admin Account Manager"
+    support_widget = ""
+    if viewer_role == "helpdesk":
+        support_widget = f"""
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Support Inbox</span><strong>{support_open}</strong></div>
+      <div><span>Registration Help</span><strong>{guest_help_open}</strong></div>
+    </article>
+        """
+    return f"""
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Delivered Sales Today</span><strong>{format_money(finance["day"])}</strong></div>
+      <div><span>Delivered Sales This Week</span><strong>{format_money(finance["week"])}</strong></div>
+      <div><span>Delivered Sales This Month</span><strong>{format_money(finance["month"])}</strong></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Payroll</span><strong>{html.escape(payroll_title)}</strong></div>
+      <div><span>Employees</span><strong>{payroll["employee_count"]}</strong></div>
+      <div><span>Weekly Hours</span><strong>{payroll["total_hours"]:.2f}</strong></div>
+      <div><span>Total Payroll</span><strong>{format_money(payroll["total_payroll"])}</strong></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Account Access</span><strong>{html.escape(recovery_title)}</strong></div>
+      <div><span>Reset login credentials, update access, or archive accounts.</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Admin Actions</span><strong>Sales Center</strong></div>
+      <div><span>Create accounts, add menu items, remove products, and manage coupons.</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Credits</span><strong>Issue Credits</strong></div>
+      <div><span>Customer credit adjustments and notes.</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Payments</span><strong>Payment Destination Center</strong></div>
+      <div><span>Update the payment names, handles, and links shown after orders.</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Latest Budhub Tickets</span><strong>{ticket_count}</strong></div>
+      <div><span>Customer + staff order visibility</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Order Chat Logs</span><strong>{order_chat_count}</strong></div>
+      <div><span>Recent order chat activity</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>ID Verification Queue</span><strong>{verification_count}</strong></div>
+      <div><span>Client verification checks waiting</span></div>
+    </article>
+    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
+      <div><span>Accounts</span><strong>{html.escape(account_title)}</strong></div>
+      <div><span>Accounts {user_count}</span></div>
+      <div><span>Menu Items {product_count}</span></div>
+    </article>
     {support_widget}
     """
 
@@ -6168,6 +6188,18 @@ def render_admin_home(connection, user, message=None, level="info"):
         guest_help_open=guest_help_open,
         support_open=support_open,
     )
+    overview_cards = render_admin_overview_cards(
+        user,
+        finance,
+        payroll,
+        users_total,
+        products_total,
+        tickets_total,
+        verification_count,
+        order_chat_count,
+        guest_help_open=guest_help_open,
+        support_open=support_open,
+    )
     nav_items = [
         ("dashboard", "/dashboard", "Dashboard", "product.png"),
         ("tools", "/admin", "Admin Tools", "package.png"),
@@ -6186,6 +6218,9 @@ def render_admin_home(connection, user, message=None, level="info"):
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Menu Items"></div><div><span>Menu Items</span><strong>{products_total}</strong></div></article>
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Budhub Tickets"></div><div><span>Budhub Tickets</span><strong>{tickets_total}</strong></div></article>
         <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('search (1).png')}" alt="Verification"></div><div><span>ID Reviews</span><strong>{verification_count}</strong></div></article>
+      </div>
+      <div class="dashboard-analytics-grid">
+        {overview_cards}
       </div>
       <section class="panel">
         <span class="eyebrow">{html.escape(title)}</span>
@@ -6220,6 +6255,18 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     ).fetchall()
     title = "Engineer Tools" if user["role"] == "helpdesk" else "Admin Tools"
     sidebar_widgets = render_admin_sidebar_widgets(
+        user,
+        finance,
+        payroll,
+        len(users),
+        len(products),
+        len(tickets),
+        len(verification_queue),
+        len(order_chat_logs),
+        guest_help_open=sum(1 for request in guest_help if request["status"] != "CLOSED"),
+        support_open=sum(1 for ticket in support if ticket["status"] != "CLOSED"),
+    )
+    overview_cards = render_admin_overview_cards(
         user,
         finance,
         payroll,
@@ -6303,14 +6350,9 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     body = f"""
     {render_account_stats_panel(connection, user)}
     {render_staff_clock_panel(connection, user)}
-    <section class="panel">
-      <h2>Finance Tracker</h2>
-      <div class="stats-row">
-        <div class="stat-card"><span>Delivered Sales Today</span><strong>{format_money(finance["day"])}</strong></div>
-        <div class="stat-card"><span>Delivered Sales This Week</span><strong>{format_money(finance["week"])}</strong></div>
-        <div class="stat-card"><span>Delivered Sales This Month</span><strong>{format_money(finance["month"])}</strong></div>
-      </div>
-    </section>
+    <div class="dashboard-analytics-grid">
+      {overview_cards}
+    </div>
     {render_payroll_widget(payroll, user["role"])}
     {render_account_recovery_widget(users, user["role"])}
     <section class="admin-grid">
