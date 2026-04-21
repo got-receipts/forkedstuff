@@ -2489,7 +2489,6 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
 
 def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_count, ticket_count, verification_count, order_chat_count, guest_help_open=0, support_open=0):
     viewer_role = user["role"]
-    recovery_title = "Engineer Account Recovery" if viewer_role == "helpdesk" else "Admin Account Recovery"
     support_widget = ""
     if viewer_role == "helpdesk":
         support_widget = f"""
@@ -2498,8 +2497,8 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
       <strong>Support + Registration</strong>
       <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
       <a class="button ghost" href="/admin">Open Engineer Tools</a>
-      <span>Support Inbox {support_open}</span>
-      <span>Registration Help {guest_help_open}</span>
+      <div class="dashboard-widget-statline"><span>Inbox</span><strong>{support_open}</strong></div>
+      <div class="dashboard-widget-statline"><span>Registration</span><strong>{guest_help_open}</strong></div>
     </section>
         """
     return f"""
@@ -2512,7 +2511,7 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
     </section>
     <section class="dashboard-widget dashboard-widget-actions">
       <span class="eyebrow">Account Access</span>
-      <strong>{html.escape(recovery_title)}</strong>
+      <strong>Recovery + Accounts</strong>
       <button type="button" class="button ghost" data-trigger-click="open-account-recovery-modal">Recovery</button>
       <button type="button" class="button ghost" data-trigger-click="open-account-manager-modal">Accounts</button>
     </section>
@@ -2530,7 +2529,6 @@ def render_admin_sidebar_widgets(user, finance, payroll, user_count, product_cou
 
 def render_admin_overview_cards(user, finance, payroll, user_count, product_count, ticket_count, verification_count, order_chat_count, guest_help_open=0, support_open=0):
     viewer_role = user["role"]
-    recovery_title = "Engineer Account Recovery" if viewer_role == "helpdesk" else "Admin Account Recovery"
     payroll_title = "Engineer Payroll Tools" if viewer_role == "helpdesk" else "Payroll Center"
     account_title = "Engineer Account Manager" if viewer_role == "helpdesk" else "Admin Account Manager"
     support_widget = ""
@@ -2554,32 +2552,13 @@ def render_admin_overview_cards(user, finance, payroll, user_count, product_coun
       <div><span>Total Payroll</span><strong>{format_money(payroll["total_payroll"])}</strong></div>
     </article>
     <article class="dashboard-analytics-card dashboard-analytics-card-stack">
-      <div><span>Account Access</span><strong>{html.escape(recovery_title)}</strong></div>
-      <div><span>Reset login credentials, update access, or archive accounts.</span></div>
-    </article>
-    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
-      <div><span>Admin Actions</span><strong>Sales Center</strong></div>
-      <div><span>Create accounts, add menu items, remove products, and manage coupons.</span></div>
-    </article>
-    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
-      <div><span>Credits</span><strong>Issue Credits</strong></div>
-      <div><span>Customer credit adjustments and notes.</span></div>
-    </article>
-    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
-      <div><span>Payments</span><strong>Payment Destination Center</strong></div>
-      <div><span>Update the payment names, handles, and links shown after orders.</span></div>
-    </article>
-    <article class="dashboard-analytics-card dashboard-analytics-card-stack">
       <div><span>Latest Budhub Tickets</span><strong>{ticket_count}</strong></div>
-      <div><span>Customer + staff order visibility</span></div>
     </article>
     <article class="dashboard-analytics-card dashboard-analytics-card-stack">
       <div><span>Order Chat Logs</span><strong>{order_chat_count}</strong></div>
-      <div><span>Recent order chat activity</span></div>
     </article>
     <article class="dashboard-analytics-card dashboard-analytics-card-stack">
       <div><span>ID Verification Queue</span><strong>{verification_count}</strong></div>
-      <div><span>Client verification checks waiting</span></div>
     </article>
     <article class="dashboard-analytics-card dashboard-analytics-card-stack">
       <div><span>Accounts</span><strong>{html.escape(account_title)}</strong></div>
