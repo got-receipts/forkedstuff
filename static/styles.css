@@ -38,14 +38,6 @@ a {
   display: none !important;
 }
 
-.admin-dashboard-widget-modals {
-  display: contents;
-}
-
-.admin-dashboard-widget-modals > .panel {
-  display: none;
-}
-
 .modal-shell {
   position: fixed;
   inset: 0;
