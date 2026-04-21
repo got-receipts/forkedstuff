@@ -2306,6 +2306,32 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
         <a href="#brands" data-drawer-close="yes">Brands</a>
         <a href="/menu" data-drawer-close="yes">Live Menu</a>
       </nav>
+      <div class="landing-drawer-grid">
+        <a class="landing-drawer-card" href="/">
+          <img src="{landing_asset_url('home.png')}" alt="Home">
+          <span>Home</span>
+        </a>
+        <a class="landing-drawer-card" href="{'/menu?category=Flower' if user else '/login'}">
+          <img src="{landing_asset_url('Mask group.png')}" alt="Flower">
+          <span>Flower</span>
+        </a>
+        <a class="landing-drawer-card" href="{'/menu?category=Edibles' if user else '/login'}">
+          <img src="{landing_asset_url('chocolate-bar.png')}" alt="Edibles">
+          <span>Edibles</span>
+        </a>
+        <a class="landing-drawer-card" href="{'/menu?category=Vapes' if user else '/login'}">
+          <img src="{landing_asset_url('Mask group (2).png')}" alt="Vapes">
+          <span>Vapes</span>
+        </a>
+        <a class="landing-drawer-card" href="{'/menu?category=Concentrates' if user else '/login'}">
+          <img src="{landing_asset_url('Mask group (3).png')}" alt="Concentrates">
+          <span>Concentrates</span>
+        </a>
+        <a class="landing-drawer-card" href="{'/menu?category=Accessories' if user else '/login'}">
+          <img src="{landing_asset_url('Mask group (5).png')}" alt="Accessories">
+          <span>Accessories</span>
+        </a>
+      </div>
     </div>
   </aside>
   <header class="landing-header">
@@ -2348,6 +2374,22 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
       drawer.querySelectorAll('[data-drawer-close="yes"]').forEach(function (node) {{
         node.addEventListener('click', closeDrawer);
       }});
+    }})();
+    (function () {{
+      var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll'));
+      if (!nodes.length || !('IntersectionObserver' in window)) {{
+        nodes.forEach(function (node) {{ node.classList.add('is-visible'); }});
+        return;
+      }}
+      var observer = new IntersectionObserver(function (entries) {{
+        entries.forEach(function (entry) {{
+          if (entry.isIntersecting) {{
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }}
+        }});
+      }}, {{ threshold: 0.18 }});
+      nodes.forEach(function (node) {{ observer.observe(node); }});
     }})();
   </script>
 </body>
@@ -4731,7 +4773,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
     </script>
     """
     body = f"""
-    <section class="landing-hero" id="landing-hero">
+    <section class="landing-hero reveal-on-scroll is-visible" id="landing-hero">
       <div class="landing-hero-bg">
         <img src="{landing_asset_url('IMG_0391.png')}" alt="BudHub hero background">
       </div>
@@ -4746,7 +4788,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         </div>
       </div>
     </section>
-    <section class="landing-section" id="experience">
+    <section class="landing-section reveal-on-scroll" id="experience">
       <div class="landing-section-head landing-section-head-centered">
         <span class="eyebrow">Start Your Experience</span>
         <h2>Start your experience</h2>
@@ -4755,7 +4797,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         {experience_markup}
       </div>
     </section>
-    <section class="landing-section landing-section-featured" id="featured">
+    <section class="landing-section landing-section-featured reveal-on-scroll" id="featured">
       <div class="landing-section-head landing-section-head-centered">
         <span class="eyebrow">Featured In</span>
         <h2>Featured in</h2>
@@ -4764,7 +4806,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         {featured_markup}
       </div>
     </section>
-    <section class="landing-drops" id="drops">
+    <section class="landing-drops reveal-on-scroll" id="drops">
       <div class="landing-drops-panel"></div>
       <div class="landing-drops-content">
         <div class="landing-drops-head">
@@ -4779,7 +4821,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         </div>
       </div>
     </section>
-    <section class="landing-section" id="brands">
+    <section class="landing-section reveal-on-scroll" id="brands">
       <div class="landing-section-head">
         <span class="eyebrow">Brands</span>
         <h2>Brands we carry</h2>
@@ -4802,6 +4844,16 @@ def render_store_page(connection, user=None, message=None, level="info", filters
 
 def render_menu_page(connection, user=None, message=None, level="info", filters=None):
     filters = normalized_store_filters(filters)
+    banner_assets = ["banner1.jpeg", "banner2.jpeg"]
+    category_banner_map = {
+        "Flower": "IMG_0389.jpg",
+        "Edibles": "IMG_0387.jpg",
+        "Concentrates": "IMG_0390.jpg",
+        "Pre-Rolls": "IMG_0388.jpg",
+        "Vapes": "IMG_0386 (1).jpg",
+    }
+    if filters["category"] in category_banner_map:
+        banner_assets = [category_banner_map[filters["category"]]] + banner_assets
     products = connection.execute(
         """
         SELECT *
@@ -5004,6 +5056,15 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
     </script>
     """
     body = f"""
+    <section class="menu-showcase reveal-on-scroll is-visible" data-menu-showcase>
+      <div class="menu-showcase-track">
+        {''.join(f'<article class="menu-showcase-slide{" is-active" if index == 0 else ""}"><img src="{landing_asset_url(filename)}" alt="Menu showcase"></article>' for index, filename in enumerate(banner_assets))}
+      </div>
+      <div class="menu-showcase-controls">
+        <button type="button" class="menu-showcase-button" data-showcase-prev="yes">Previous</button>
+        <button type="button" class="menu-showcase-button" data-showcase-next="yes">Next</button>
+      </div>
+    </section>
     <section class="hero">
       <div class="hero-copy">
         <span class="eyebrow">Official BudHub | 518 Delivery</span>
@@ -5023,6 +5084,56 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
     </section>
     {menu_markup}
     {menu_script}
+    <script>
+      (function () {{
+        var showcase = document.querySelector('[data-menu-showcase]');
+        if (!showcase) {{
+          return;
+        }}
+        var slides = Array.prototype.slice.call(showcase.querySelectorAll('.menu-showcase-slide'));
+        var prev = showcase.querySelector('[data-showcase-prev="yes"]');
+        var next = showcase.querySelector('[data-showcase-next="yes"]');
+        if (!slides.length) {{
+          return;
+        }}
+        var index = 0;
+        function render() {{
+          slides.forEach(function (slide, slideIndex) {{
+            slide.classList.toggle('is-active', slideIndex === index);
+          }});
+        }}
+        function advance(step) {{
+          index = (index + step + slides.length) % slides.length;
+          render();
+        }}
+        if (prev) {{
+          prev.addEventListener('click', function () {{ advance(-1); }});
+        }}
+        if (next) {{
+          next.addEventListener('click', function () {{ advance(1); }});
+        }}
+        window.setInterval(function () {{
+          advance(1);
+        }}, 3500);
+        render();
+      }})();
+      (function () {{
+        var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll'));
+        if (!nodes.length || !('IntersectionObserver' in window)) {{
+          nodes.forEach(function (node) {{ node.classList.add('is-visible'); }});
+          return;
+        }}
+        var observer = new IntersectionObserver(function (entries) {{
+          entries.forEach(function (entry) {{
+            if (entry.isIntersecting) {{
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            }}
+          }});
+        }}, {{ threshold: 0.18 }});
+        nodes.forEach(function (node) {{ observer.observe(node); }});
+      }})();
+    </script>
     """
     return page(
         f"{APP_NAME} Menu",
