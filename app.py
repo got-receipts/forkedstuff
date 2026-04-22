@@ -1,5 +1,6 @@
 import hashlib
 import html
+import json
 import mimetypes
 import os
 import re
@@ -112,6 +113,7 @@ POSTGRES_CREATE_STATEMENTS = [
         slug TEXT NOT NULL,
         source_url TEXT NOT NULL,
         strain_type TEXT DEFAULT 'Unspecified',
+        thc_percent TEXT DEFAULT '',
         image_url TEXT,
         created_at TEXT NOT NULL
     )
@@ -940,6 +942,74 @@ def render_store_search(filters):
     """
 
 
+def is_new_product(product):
+    try:
+        created_at = datetime.fromisoformat((product["created_at"] or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    return (datetime.utcnow() - created_at.replace(tzinfo=None)).days <= 21
+
+
+def is_deal_product(product):
+    try:
+        return float(product["price"] or 0) <= 30.50 or int(product["stock"] or 0) <= 4
+    except (TypeError, ValueError):
+        return False
+
+
+def product_badges_markup(product):
+    badges = []
+    if is_deal_product(product):
+        badges.append('<span class="product-ribbon product-ribbon-deal">Deal</span>')
+    if is_new_product(product):
+        badges.append('<span class="product-ribbon product-ribbon-new">New</span>')
+    return "".join(badges)
+
+
+def quantity_stepper(name, value=1, minimum=1, maximum=99, label="Qty", compact=False):
+    compact_class = " quantity-stepper-compact" if compact else ""
+    return f"""
+    <label class="compact-label quantity-field">{html.escape(label)}
+      <span class="quantity-stepper{compact_class}" data-quantity-stepper>
+        <button type="button" class="quantity-stepper-button" data-quantity-delta="-1" aria-label="Decrease quantity">-</button>
+        <input type="number" name="{html.escape(name)}" min="{minimum}" max="{maximum}" value="{value}" required>
+        <button type="button" class="quantity-stepper-button" data-quantity-delta="1" aria-label="Increase quantity">+</button>
+      </span>
+    </label>
+    """
+
+
+def render_menu_spotlight_filters():
+    return """
+    <div class="filter-row menu-spotlight-row">
+      <span class="eyebrow">Shop Fast</span>
+      <div class="filter-chip-row">
+        <button type="button" class="filter-chip active" data-spotlight-filter="all">All Items</button>
+        <button type="button" class="filter-chip" data-spotlight-filter="new">New Drops</button>
+        <button type="button" class="filter-chip" data-spotlight-filter="deal">Deals</button>
+      </div>
+    </div>
+    """
+
+
+def render_category_preview_strip(products, filters, menu_path="/menu"):
+    categories = ["Flower", "Edibles", "Concentrates", "PreRolls", "Vapes", "Accessories"]
+    cards = []
+    for category in categories:
+        count = sum(1 for product in products if (product["category"] or "General") == category)
+        href = store_url(filters, category=category, strain="All").replace("/", menu_path, 1)
+        cards.append(
+            f"""
+            <a class="menu-category-preview" href="{html.escape(href)}" data-filter-kind="category" data-filter-value="{html.escape(category)}">
+              <span>{html.escape(category)}</span>
+              <strong>{count}</strong>
+              <small>See All</small>
+            </a>
+            """
+        )
+    return f'<div class="menu-category-preview-strip">{"".join(cards)}</div>'
+
+
 def render_cart_widget(connection, user, filters, base_path="/"):
     if not user or user["role"] != "client":
         return """
@@ -955,19 +1025,27 @@ def render_cart_widget(connection, user, filters, base_path="/"):
     return_to = store_url(filters).replace("/", base_path, 1) + "#bag-widget"
     rows = []
     for item in items:
+        item_image = product_image_proxy_url(item["product_image_url"], item["product_source_url"] or "")
         rows.append(
             f"""
             <div class="bag-item">
-              <div>
+              <img class="bag-item-image" src="{html.escape(item_image)}" alt="{html.escape(item["product_name"])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';">
+              <div class="bag-item-copy">
                 <strong>{html.escape(item["product_name"])}</strong>
                 <p>{item["quantity"]} x {format_money(item["product_price"])}</p>
+                <form method="post" action="/cart/update" class="bag-quantity-form">
+                  <input type="hidden" name="product_id" value="{item["product_id"]}">
+                  <input type="hidden" name="return_to" value="{html.escape(return_to)}">
+                  {quantity_stepper("quantity", item["quantity"], 1, item["product_stock"], "Qty", compact=True)}
+                  <button class="button ghost button-mini" type="submit">Update</button>
+                </form>
               </div>
               <div class="bag-item-actions">
                 <span>{format_money(item["quantity"] * item["product_price"])}</span>
-                <form method="post" action="/cart/remove">
+                <form method="post" action="/cart/remove" data-confirm-remove>
                   <input type="hidden" name="product_id" value="{item["product_id"]}">
                   <input type="hidden" name="return_to" value="{html.escape(return_to)}">
-                  <button class="button ghost" type="submit">Remove</button>
+                  <button class="button ghost button-mini" type="submit">Remove</button>
                 </form>
               </div>
             </div>
@@ -983,7 +1061,8 @@ def render_cart_widget(connection, user, filters, base_path="/"):
         <span class="menu-count">{client_cart_count(connection, user["id"])} items</span>
       </div>
       <div class="bag-list">{''.join(rows) if rows else '<p>Your bag is empty. Add something and keep browsing.</p>'}</div>
-      <div class="bag-checkout-shell">
+      <div class="bag-checkout-shell checkout-stage-card">
+      <div class="checkout-steps"><span class="is-active">1 Bag</span><span>2 Delivery</span><span>3 Payment</span><span>4 Submit</span></div>
       <div class="checkout-total"><span>Subtotal</span><strong>{format_money(subtotal)}</strong></div>
       <div class="checkout-total"><span>Available Credits</span><strong>{format_money(user["credit_balance"])}</strong></div>
       <div class="checkout-total"><span>Loyalty Points</span><strong>{int(user["loyalty_points"] or 0)}</strong></div>
@@ -1052,12 +1131,13 @@ def seed_leafly_strains(connection):
     for strain in LEAFLY_STRAIN_LIBRARY:
         connection.execute(
             """
-            INSERT INTO leafly_strains (name, slug, source_url, strain_type, image_url, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO leafly_strains (name, slug, source_url, strain_type, thc_percent, image_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 slug = excluded.slug,
                 source_url = excluded.source_url,
                 strain_type = excluded.strain_type,
+                thc_percent = COALESCE(NULLIF(excluded.thc_percent, ''), leafly_strains.thc_percent),
                 image_url = COALESCE(excluded.image_url, leafly_strains.image_url)
             """,
             (
@@ -1065,6 +1145,7 @@ def seed_leafly_strains(connection):
                 strain["slug"],
                 canonical_leafly_url(strain["slug"]),
                 strain["type"],
+                strain.get("thc_percent", ""),
                 strain.get("image_url"),
                 now_iso(),
             ),
@@ -1428,6 +1509,78 @@ def fetch_leafly_profile_image_url(source_url):
     return ""
 
 
+def fetch_leafly_thc_percent(source_url):
+    parsed = urlparse(source_url)
+    if parsed.scheme not in {"http", "https"} or "leafly.com" not in parsed.netloc.lower():
+        return ""
+    try:
+        request = Request(
+            source_url,
+            headers={
+                "User-Agent": "BudHubStorefront/0.3",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urlopen(request, timeout=8) as response:
+            page_html = response.read().decode("utf-8", errors="ignore")
+    except (HTTPError, URLError, TimeoutError, ValueError, OSError):
+        return ""
+
+    patterns = [
+        r'"thcContent"\s*:\s*"?(\d+(?:\.\d+)?)\s*%?',
+        r'"thc"\s*:\s*"?(\d+(?:\.\d+)?)\s*%?',
+        r'(\d+(?:\.\d+)?)\s*%\s*THC',
+        r'THC[^<>{}]{0,100}?(\d+(?:\.\d+)?)\s*%',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, page_html, flags=re.IGNORECASE)
+        if match:
+            return f"{match.group(1)}%"
+    return ""
+
+
+def product_leafly_strain(connection, product):
+    if product["leafly_strain_name"]:
+        row = connection.execute(
+            "SELECT * FROM leafly_strains WHERE lower(name) = lower(?)",
+            (product["leafly_strain_name"],),
+        ).fetchone()
+        if row:
+            return row
+    if product["source_url"]:
+        row = connection.execute(
+            "SELECT * FROM leafly_strains WHERE source_url = ?",
+            (product["source_url"],),
+        ).fetchone()
+        if row:
+            return row
+    return None
+
+
+def lab_analysis_payload(connection, product_id, allow_remote_fetch=False):
+    product = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product:
+        return None
+    strain = product_leafly_strain(connection, product)
+    source_url = product["source_url"] or (strain["source_url"] if strain else "")
+    strain_name = product["leafly_strain_name"] or (strain["name"] if strain else product["name"])
+    strain_type = product["strain_type"] or (strain["strain_type"] if strain else "Unspecified")
+    thc_percent = (strain["thc_percent"] if strain else "") or ""
+    if allow_remote_fetch and source_url and not thc_percent:
+        thc_percent = fetch_leafly_thc_percent(source_url)
+        if thc_percent and strain:
+            connection.execute("UPDATE leafly_strains SET thc_percent = ? WHERE id = ?", (thc_percent, strain["id"]))
+            connection.commit()
+    return {
+        "product_name": product["name"],
+        "strain_name": strain_name,
+        "strain_type": strain_type or "Unspecified",
+        "thc_percent": thc_percent,
+        "source": "Leafly profile" if source_url else "BudHub strain profile",
+        "note": "THC values are profile references and may vary by batch. Check package COA/lab label for the exact batch.",
+    }
+
+
 def serve_product_image(environ, start_response):
     remote_url = query_params(environ).get("url", "").strip()
     source_url = query_params(environ).get("source", "").strip()
@@ -1567,6 +1720,11 @@ def redirect(start_response, location, cookie_header=None):
 def text_response(start_response, body, status="200 OK", content_type="text/html; charset=utf-8"):
     start_response(status, [("Content-Type", content_type)])
     return [body.encode("utf-8")]
+
+
+def json_response(start_response, payload, status="200 OK"):
+    start_response(status, [("Content-Type", "application/json; charset=utf-8")])
+    return [json.dumps(payload).encode("utf-8")]
 
 
 def table_exists(connection, name):
@@ -1749,6 +1907,7 @@ def init_db():
                 slug TEXT NOT NULL,
                 source_url TEXT NOT NULL,
                 strain_type TEXT NOT NULL DEFAULT 'Unspecified',
+                thc_percent TEXT NOT NULL DEFAULT '',
                 image_url TEXT,
                 created_at TEXT NOT NULL
             );
@@ -1977,6 +2136,7 @@ def init_db():
         ensure_column(connection, "products", "leafly_strain_name TEXT")
         ensure_column(connection, "products", "menu_group TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "products", "strain_type TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "leafly_strains", "thc_percent TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "tickets", "fulfillment_type TEXT NOT NULL DEFAULT 'DELIVERY'")
         ensure_column(connection, "tickets", "payment_method TEXT NOT NULL DEFAULT 'CHIME'")
         ensure_column(connection, "tickets", "contact_name TEXT")
@@ -2159,6 +2319,251 @@ def render_help_button(user):
     if user:
         return '<a class="support-fab" href="/help">Budhub Help</a>'
     return '<a class="support-fab" href="/register#support-access">Need Help?</a>'
+
+
+def render_lab_analysis_button(product, product_strain):
+    if not product["source_url"] and not product["leafly_strain_name"]:
+        return ""
+    strain_name = product["leafly_strain_name"] or product["name"]
+    return (
+        f'<button type="button" class="source-link lab-analysis-trigger" '
+        f'data-open-lab-analysis="yes" '
+        f'data-product-id="{product["id"]}" '
+        f'data-strain-name="{html.escape(strain_name)}" '
+        f'data-strain-type="{html.escape(product_strain)}">'
+        "Lab Analysis"
+        "</button>"
+    )
+
+
+def render_lab_analysis_modal():
+    return """
+    <div class="modal-shell is-hidden" id="lab-analysis-modal">
+      <div class="modal-backdrop" data-close-lab-analysis="yes"></div>
+      <div class="modal-card lab-analysis-card">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Lab Analysis</span>
+            <h3 id="lab-analysis-title">Strain Profile</h3>
+          </div>
+          <button type="button" class="button ghost modal-close" data-close-lab-analysis="yes">Close</button>
+        </div>
+        <div class="lab-analysis-grid">
+          <div class="lab-analysis-stat">
+            <span>Strain Name</span>
+            <strong id="lab-analysis-name">Loading</strong>
+          </div>
+          <div class="lab-analysis-stat">
+            <span>Type</span>
+            <strong id="lab-analysis-type">Loading</strong>
+          </div>
+          <div class="lab-analysis-stat lab-analysis-stat-hot">
+            <span>THC Percentage</span>
+            <strong id="lab-analysis-thc">Checking Leafly</strong>
+          </div>
+        </div>
+        <p class="lab-analysis-note" id="lab-analysis-note">Pulling the latest cached strain profile.</p>
+      </div>
+    </div>
+    """
+
+
+def render_lab_analysis_script():
+    return """
+    <script>
+      (function () {
+        var modal = document.getElementById('lab-analysis-modal');
+        if (!modal) {
+          return;
+        }
+        var titleNode = document.getElementById('lab-analysis-title');
+        var nameNode = document.getElementById('lab-analysis-name');
+        var typeNode = document.getElementById('lab-analysis-type');
+        var thcNode = document.getElementById('lab-analysis-thc');
+        var noteNode = document.getElementById('lab-analysis-note');
+
+        function closeModal() {
+          modal.classList.add('is-hidden');
+        }
+
+        function setAnalysis(data) {
+          titleNode.textContent = data.product_name || 'Strain Profile';
+          nameNode.textContent = data.strain_name || 'Not listed';
+          typeNode.textContent = data.strain_type || 'Unspecified';
+          thcNode.textContent = data.thc_percent || 'Not listed by profile';
+          noteNode.textContent = data.note || 'THC values may vary by batch. Check the package COA for exact batch results.';
+        }
+
+        document.querySelectorAll('[data-open-lab-analysis]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            setAnalysis({
+              product_name: button.dataset.strainName || 'Strain Profile',
+              strain_name: button.dataset.strainName || 'Not listed',
+              strain_type: button.dataset.strainType || 'Unspecified',
+              thc_percent: 'Checking Leafly',
+              note: 'Pulling Leafly profile data now.'
+            });
+            modal.classList.remove('is-hidden');
+            fetch('/lab-analysis?product_id=' + encodeURIComponent(button.dataset.productId), {
+              headers: { 'Accept': 'application/json' }
+            })
+              .then(function (response) { return response.ok ? response.json() : null; })
+              .then(function (data) {
+                if (data) {
+                  setAnalysis(data);
+                }
+              })
+              .catch(function () {
+                thcNode.textContent = 'Unavailable right now';
+                noteNode.textContent = 'Leafly could not be reached. The strain name and type are still shown from the cached BudHub reference.';
+              });
+          });
+        });
+
+        modal.querySelectorAll('[data-close-lab-analysis]').forEach(function (node) {
+          node.addEventListener('click', closeModal);
+        });
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            closeModal();
+          }
+        });
+      })();
+    </script>
+    """
+
+
+def render_product_detail_modal():
+    return """
+    <div class="modal-shell is-hidden" id="product-detail-modal">
+      <div class="modal-backdrop" data-close-product-detail="yes"></div>
+      <div class="modal-card modal-card-wide product-detail-modal-card">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">Product Details</span>
+            <h3 id="product-detail-title">Menu Item</h3>
+          </div>
+          <button type="button" class="button ghost modal-close" data-close-product-detail="yes">Close</button>
+        </div>
+        <div class="product-detail-layout">
+          <img id="product-detail-image" class="product-detail-image" src="/static/budhub-logo.png" alt="Product image">
+          <div class="product-detail-copy">
+            <div class="product-detail-pills">
+              <span class="price-pill" id="product-detail-price">$0.00</span>
+              <span class="strain-pill" id="product-detail-category">Menu</span>
+              <span class="strain-pill" id="product-detail-strain">Unspecified</span>
+            </div>
+            <p id="product-detail-description"></p>
+            <div class="product-detail-meta">
+              <span>Stock</span>
+              <strong id="product-detail-stock">0 available</strong>
+            </div>
+            <button type="button" class="button ghost" id="product-detail-lab-button">Open Lab Analysis</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def render_menu_interaction_script():
+    return """
+    <script>
+      (function () {
+        document.querySelectorAll('[data-quantity-stepper]').forEach(function (stepper) {
+          var input = stepper.querySelector('input[type="number"]');
+          if (!input) {
+            return;
+          }
+          stepper.querySelectorAll('[data-quantity-delta]').forEach(function (button) {
+            button.addEventListener('click', function () {
+              var delta = parseInt(button.dataset.quantityDelta || '0', 10);
+              var min = parseInt(input.getAttribute('min') || '1', 10);
+              var max = parseInt(input.getAttribute('max') || '99', 10);
+              var current = parseInt(input.value || String(min), 10);
+              input.value = String(Math.max(min, Math.min(max, current + delta)));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+          });
+        });
+
+        document.querySelectorAll('[data-confirm-remove]').forEach(function (form) {
+          form.addEventListener('submit', function (event) {
+            if (!window.confirm('Remove this item from your bag?')) {
+              event.preventDefault();
+            }
+          });
+        });
+
+        document.querySelectorAll('.card-action-stack').forEach(function (form) {
+          form.addEventListener('submit', function () {
+            var button = form.querySelector('button[type="submit"]');
+            if (button) {
+              button.textContent = 'Added';
+              button.classList.add('button-confirmed');
+            }
+            var toast = document.getElementById('menu-toast');
+            if (!toast) {
+              toast = document.createElement('div');
+              toast.id = 'menu-toast';
+              toast.className = 'menu-toast';
+              document.body.appendChild(toast);
+            }
+            toast.textContent = 'Added to bag';
+            toast.classList.add('is-visible');
+            window.setTimeout(function () {
+              toast.classList.remove('is-visible');
+            }, 1800);
+          });
+        });
+
+        var detailModal = document.getElementById('product-detail-modal');
+        if (!detailModal) {
+          return;
+        }
+        var title = document.getElementById('product-detail-title');
+        var image = document.getElementById('product-detail-image');
+        var price = document.getElementById('product-detail-price');
+        var category = document.getElementById('product-detail-category');
+        var strain = document.getElementById('product-detail-strain');
+        var description = document.getElementById('product-detail-description');
+        var stock = document.getElementById('product-detail-stock');
+        var labButton = document.getElementById('product-detail-lab-button');
+        var activeLabTrigger = null;
+
+        document.querySelectorAll('[data-open-product-detail]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            title.textContent = button.dataset.productName || 'Menu Item';
+            image.src = button.dataset.productImage || '/static/budhub-logo.png';
+            image.alt = button.dataset.productName || 'Product image';
+            price.textContent = button.dataset.productPrice || '$0.00';
+            category.textContent = button.dataset.productCategory || 'Menu';
+            strain.textContent = button.dataset.productStrain || 'Unspecified';
+            description.textContent = button.dataset.productDescription || '';
+            stock.textContent = (button.dataset.productStock || '0') + ' available';
+            activeLabTrigger = document.querySelector('[data-open-lab-analysis][data-product-id="' + button.dataset.productId + '"]');
+            labButton.classList.toggle('is-hidden', !activeLabTrigger);
+            detailModal.classList.remove('is-hidden');
+          });
+        });
+
+        if (labButton) {
+          labButton.addEventListener('click', function () {
+            if (activeLabTrigger) {
+              detailModal.classList.add('is-hidden');
+              activeLabTrigger.click();
+            }
+          });
+        }
+
+        detailModal.querySelectorAll('[data-close-product-detail]').forEach(function (node) {
+          node.addEventListener('click', function () {
+            detailModal.classList.add('is-hidden');
+          });
+        });
+      })();
+    </script>
+    """
 
 
 def average_delivery_eta_minutes(connection, modifier="-1 day"):
@@ -2502,6 +2907,12 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
         activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-staff-activity-widget">Activity</button>'
     elif user and user["role"] == "client":
         activity_button = '<button type="button" class="button ghost dashboard-topbar-action" id="open-activity-widget">Activity</button>'
+    verification_badge = ""
+    if user and user["role"] == "client":
+        verification_status = user["verification_status"] or "VERIFIED"
+        verification_class = "is-verified" if verification_status == "VERIFIED" else "is-pending"
+        verification_icon = '<span class="dashboard-verification-check">&#10003;</span>' if verification_status == "VERIFIED" else ""
+        verification_badge = f'<span class="dashboard-verification-badge {verification_class}">{verification_icon}{html.escape(verification_status_label(verification_status))}</span>'
     account_menu_actions = '<a class="dashboard-account-menu-link" href="/logout">Logout</a>'
     if user and user["role"] == "client":
         account_menu_actions = '<button type="button" class="dashboard-account-menu-link" data-trigger-click="open-client-profile-widget">Edit Profile</button><a class="dashboard-account-menu-link" href="/logout">Logout</a>'
@@ -2544,7 +2955,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
             <div class="dashboard-avatar">{html.escape(user_initials(user["name"] if user else ""))}</div>
             <div>
               <strong>{html.escape(user["name"] if user else "Guest")}</strong>
-              <span>{html.escape(role_label)}</span>
+              {verification_badge or f'<span>{html.escape(role_label)}</span>'}
             </div>
             <span class="dashboard-account-chevron">⌄</span>
           </button>
@@ -2942,7 +3353,8 @@ def cart_items_for_user(connection, user_id):
     return connection.execute(
         """
         SELECT cart_items.*, products.name AS product_name, products.description AS product_description,
-               products.price AS product_price, products.stock AS product_stock
+               products.price AS product_price, products.stock AS product_stock,
+               products.image_url AS product_image_url, products.source_url AS product_source_url
         FROM cart_items
         JOIN products ON products.id = cart_items.product_id
         WHERE cart_items.user_id = ?
@@ -4969,7 +5381,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             <form method="post" action="/cart/add" class="card-action-stack">
               <input type="hidden" name="product_id" value="{product['id']}">
               <input type="hidden" name="return_to" value="{html.escape(store_url(filters) + '#bag-widget')}">
-              <label class="compact-label">Qty<input type="number" name="quantity" min="1" max="{product['stock']}" value="1" required></label>
+              {quantity_stepper("quantity", 1, 1, product["stock"], "Qty")}
               <div class="card-buttons">
                 <button type="submit">Add to Bag</button>
                 <a class="button ghost" href="/#bag-widget">Open Bag</a>
@@ -4981,10 +5393,14 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         card_label = product["category"]
         if product["category"] == "Flower" and is_double_stuffed_product(product):
             card_label = "Flower | Double Stuffed 7G"
+        product_image = product_image_proxy_url(product['image_url'], product['source_url'] or '')
+        product_is_new = "true" if is_new_product(product) else "false"
+        product_is_deal = "true" if is_deal_product(product) else "false"
         cards.append(
             f"""
-            <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}">
-              <img class="product-card-image" src="{html.escape(product_image_proxy_url(product['image_url'], product['source_url'] or ''))}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
+            <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
+              {product_badges_markup(product)}
+              <img class="product-card-image" src="{html.escape(product_image)}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
               <div class="product-card-top">
                 <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
                 <h3>{html.escape(product["name"])}</h3>
@@ -4995,7 +5411,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
                 </div>
               </div>
               <p>{html.escape(product["description"])}</p>
-              {f'<a class="source-link" href="{html.escape(product["source_url"])}" target="_blank" rel="noopener noreferrer">Leafly Reference</a>' if product["source_url"] else ""}
+              {render_lab_analysis_button(product, product_strain)}
+              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(format_money(product['price']))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
               <div class="product-card-bottom">{action}</div>
             </article>
             """
@@ -5083,6 +5500,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             <span class="menu-count" id="menu-match-count">{visible_products} matches</span>
           </div>
           <p class="menu-note">{html.escape(active_store_note(filters["category"]))}</p>
+          {render_category_preview_strip(products, filters, menu_path="/menu")}
+          {render_menu_spotlight_filters()}
           <div class="filter-row">
             <span class="eyebrow">Menu Categories</span>
             <div class="filter-chip-row">{category_chips}</div>
@@ -5101,7 +5520,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         var state = {{
           category: {filters["category"]!r},
           strain: {filters["strain"]!r},
-          search: {filters["search"]!r}
+          search: {filters["search"]!r},
+          spotlight: 'all'
         }};
         var cards = Array.prototype.slice.call(document.querySelectorAll('.product-card[data-category]'));
         var countNode = document.getElementById('menu-match-count');
@@ -5131,6 +5551,12 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             if (state.search && name.indexOf(state.search.toLowerCase()) === -1) {{
               matches = false;
             }}
+            if (state.spotlight === 'new' && card.dataset.new !== 'true') {{
+              matches = false;
+            }}
+            if (state.spotlight === 'deal' && card.dataset.deal !== 'true') {{
+              matches = false;
+            }}
             card.classList.toggle('is-hidden', !matches);
             if (matches) {{
               visible += 1;
@@ -5145,6 +5571,9 @@ def render_store_page(connection, user=None, message=None, level="info", filters
           document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
             chip.classList.toggle('active', chip.dataset.filterValue === state.strain);
           }});
+          document.querySelectorAll('[data-spotlight-filter]').forEach(function (chip) {{
+            chip.classList.toggle('active', chip.dataset.spotlightFilter === state.spotlight);
+          }});
         }}
         document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
@@ -5158,6 +5587,12 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
             state.strain = chip.dataset.filterValue;
+            applyFilters();
+          }});
+        }});
+        document.querySelectorAll('[data-spotlight-filter]').forEach(function (chip) {{
+          chip.addEventListener('click', function () {{
+            state.spotlight = chip.dataset.spotlightFilter || 'all';
             applyFilters();
           }});
         }});
@@ -5178,6 +5613,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             state.category = 'All';
             state.strain = 'All';
             state.search = '';
+            state.spotlight = 'all';
             if (searchInput) {{
               searchInput.value = '';
             }}
@@ -5245,6 +5681,10 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         {brand_markup}
       </div>
     </section>
+    {render_lab_analysis_modal()}
+    {render_lab_analysis_script()}
+    {render_product_detail_modal()}
+    {render_menu_interaction_script()}
     """
     return landing_page(
         APP_NAME,
@@ -5310,7 +5750,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             <form method="post" action="/cart/add" class="card-action-stack">
               <input type="hidden" name="product_id" value="{product['id']}">
               <input type="hidden" name="return_to" value="{html.escape(store_url(filters).replace('/', '/menu', 1) + '#bag-widget')}">
-              <label class="compact-label">Qty<input type="number" name="quantity" min="1" max="{product['stock']}" value="1" required></label>
+              {quantity_stepper("quantity", 1, 1, product["stock"], "Qty")}
               <div class="card-buttons">
                 <button type="submit">Add to Bag</button>
                 <a class="button ghost" href="/menu#bag-widget">Open Bag</a>
@@ -5322,10 +5762,14 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         card_label = product["category"]
         if product["category"] == "Flower" and is_double_stuffed_product(product):
             card_label = "Flower | Double Stuffed 7G"
+        product_image = product_image_proxy_url(product['image_url'], product['source_url'] or '')
+        product_is_new = "true" if is_new_product(product) else "false"
+        product_is_deal = "true" if is_deal_product(product) else "false"
         cards.append(
             f"""
-            <article class="product-card{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}">
-              <img class="product-card-image" src="{html.escape(product_image_proxy_url(product['image_url'], product['source_url'] or ''))}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
+            <article class="product-card{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
+              {product_badges_markup(product)}
+              <img class="product-card-image" src="{html.escape(product_image)}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
               <div class="product-card-top">
                 <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
                 <h3>{html.escape(product["name"])}</h3>
@@ -5336,7 +5780,8 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
                 </div>
               </div>
               <p>{html.escape(product["description"])}</p>
-              {f'<a class="source-link" href="{html.escape(product["source_url"])}" target="_blank" rel="noopener noreferrer">Leafly Reference</a>' if product["source_url"] else ""}
+              {render_lab_analysis_button(product, product_strain)}
+              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(format_money(product['price']))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
               <div class="product-card-bottom">{action}</div>
             </article>
             """
@@ -5365,6 +5810,8 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             <span class="menu-count" id="menu-match-count">{visible_products} matches</span>
           </div>
           <p class="menu-note">{html.escape(active_store_note(filters["category"]))}</p>
+          {render_category_preview_strip(products, filters, menu_path="/menu")}
+          {render_menu_spotlight_filters()}
           <div class="filter-row">
             <span class="eyebrow">Menu Categories</span>
             <div class="filter-chip-row">{category_chips}</div>
@@ -5383,7 +5830,8 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         var state = {{
           category: {filters["category"]!r},
           strain: {filters["strain"]!r},
-          search: {filters["search"]!r}
+          search: {filters["search"]!r},
+          spotlight: 'all'
         }};
         var cards = Array.prototype.slice.call(document.querySelectorAll('.product-card[data-category]'));
         var countNode = document.getElementById('menu-match-count');
@@ -5413,6 +5861,12 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             if (state.search && name.indexOf(state.search.toLowerCase()) === -1) {{
               matches = false;
             }}
+            if (state.spotlight === 'new' && card.dataset.new !== 'true') {{
+              matches = false;
+            }}
+            if (state.spotlight === 'deal' && card.dataset.deal !== 'true') {{
+              matches = false;
+            }}
             card.classList.toggle('is-hidden', !matches);
             if (matches) {{
               visible += 1;
@@ -5427,6 +5881,9 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
           document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
             chip.classList.toggle('active', chip.dataset.filterValue === state.strain);
           }});
+          document.querySelectorAll('[data-spotlight-filter]').forEach(function (chip) {{
+            chip.classList.toggle('active', chip.dataset.spotlightFilter === state.spotlight);
+          }});
         }}
         document.querySelectorAll('[data-filter-kind="category"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
@@ -5440,6 +5897,12 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         document.querySelectorAll('[data-filter-kind="strain"]').forEach(function (chip) {{
           chip.addEventListener('click', function () {{
             state.strain = chip.dataset.filterValue;
+            applyFilters();
+          }});
+        }});
+        document.querySelectorAll('[data-spotlight-filter]').forEach(function (chip) {{
+          chip.addEventListener('click', function () {{
+            state.spotlight = chip.dataset.spotlightFilter || 'all';
             applyFilters();
           }});
         }});
@@ -5460,6 +5923,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             state.category = 'All';
             state.strain = 'All';
             state.search = '';
+            state.spotlight = 'all';
             if (searchInput) {{
               searchInput.value = '';
             }}
@@ -5499,6 +5963,10 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
     </section>
     {menu_markup}
     {menu_script}
+    {render_lab_analysis_modal()}
+    {render_lab_analysis_script()}
+    {render_product_detail_modal()}
+    {render_menu_interaction_script()}
     <script>
       (function () {{
         var showcase = document.querySelector('[data-menu-showcase]');
@@ -5720,21 +6188,28 @@ def render_cart_page(connection, user, message=None, level="info"):
     rows = []
     for item in items:
         subtotal += item["quantity"] * item["product_price"]
+        item_image = product_image_proxy_url(item["product_image_url"], item["product_source_url"] or "")
         rows.append(
             f"""
             <div class="cart-row">
-              <div>
+              <img class="cart-row-image" src="{html.escape(item_image)}" alt="{html.escape(item["product_name"])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';">
+              <div class="cart-row-copy">
                 <span class="eyebrow">Menu Item</span>
                 <h3>{html.escape(item["product_name"])}</h3>
                 <p>{html.escape(item["product_description"])}</p>
               </div>
               <div class="cart-row-meta">
-                <span>Qty {item["quantity"]}</span>
                 <strong>{format_money(item["quantity"] * item["product_price"])}</strong>
-                <form method="post" action="/cart/remove">
+                <form method="post" action="/cart/update" class="bag-quantity-form">
                   <input type="hidden" name="product_id" value="{item["product_id"]}">
                   <input type="hidden" name="return_to" value="/cart">
-                  <button class="button ghost" type="submit">Remove</button>
+                  {quantity_stepper("quantity", item["quantity"], 1, item["product_stock"], "Qty", compact=True)}
+                  <button class="button ghost button-mini" type="submit">Update</button>
+                </form>
+                <form method="post" action="/cart/remove" data-confirm-remove>
+                  <input type="hidden" name="product_id" value="{item["product_id"]}">
+                  <input type="hidden" name="return_to" value="/cart">
+                  <button class="button ghost button-mini" type="submit">Remove</button>
                 </form>
               </div>
             </div>
@@ -5749,8 +6224,9 @@ def render_cart_page(connection, user, message=None, level="info"):
         </div>
         <div class="cart-list">{''.join(rows) if rows else '<p>Your bag is empty.</p>'}</div>
       </section>
-      <section class="panel dashboard-panel">
+      <section class="panel dashboard-panel checkout-stage-card">
         <h2>Checkout</h2>
+        <div class="checkout-steps"><span class="is-active">1 Bag</span><span>2 Delivery</span><span>3 Payment</span><span>4 Submit</span></div>
         <div class="checkout-total"><span>Items</span><strong>{client_cart_count(connection, user["id"])}</strong></div>
         <div class="checkout-total"><span>Subtotal</span><strong>{format_money(subtotal)}</strong></div>
         <div class="checkout-total"><span>Available Credits</span><strong>{format_money(user["credit_balance"])}</strong></div>
@@ -5774,6 +6250,7 @@ def render_cart_page(connection, user, message=None, level="info"):
         </form>
       </section>
     </section>
+    {render_menu_interaction_script()}
     """
     return dashboard_page(
         "Your Bag",
@@ -6656,24 +7133,12 @@ def verification_status_label(status):
 
 
 def render_client_loyalty_verification_panel(user, open_count):
-    status = user["verification_status"] or "VERIFIED"
-    status_level = "up" if status == "VERIFIED" else "warn"
     return f"""
     <section class="dashboard-client-insights">
       <article class="dashboard-loyalty-card">
         <span class="eyebrow">Loyalty Points</span>
         <strong>{int(user["loyalty_points"] or 0)}</strong>
         <p>Use points at checkout to lower your next order.</p>
-      </article>
-      <article class="dashboard-loyalty-card">
-        <span class="eyebrow">ID Verification</span>
-        <strong>{html.escape(verification_status_label(status))}</strong>
-        <p>{'Ready to order.' if status == 'VERIFIED' else 'Our team will review this before checkout access is fully open.'}</p>
-      </article>
-      <article class="dashboard-loyalty-card">
-        <span class="eyebrow">Open Orders</span>
-        <strong>{open_count}</strong>
-        <p>Track active BudHub tickets from your dashboard.</p>
       </article>
     </section>
     """
@@ -7190,6 +7655,31 @@ def handle_remove_from_cart(environ, start_response, connection, user):
         log_activity(connection, user, "REMOVE_FROM_BAG", f"Removed {product['name']} from the bag.", target_user_id=user["id"])
     connection.commit()
     return redirect_with_message(start_response, return_to, "Item removed")
+
+
+def handle_update_cart_quantity(environ, start_response, connection, user):
+    gate = require_role(start_response, user, {"client"})
+    if gate:
+        return gate
+    data = read_post_data(environ)
+    product_id = int(data.get("product_id", "0"))
+    return_to = data.get("return_to", "/#bag-widget") or "/#bag-widget"
+    product = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
+    if not product:
+        return redirect_with_message(start_response, return_to, "Menu item not found")
+    try:
+        quantity = int(data.get("quantity", "1") or 1)
+    except ValueError:
+        quantity = 1
+    quantity = max(1, min(quantity, int(product["stock"] or 1)))
+    existing = connection.execute("SELECT * FROM cart_items WHERE user_id = ? AND product_id = ?", (user["id"], product_id)).fetchone()
+    if not existing:
+        connection.execute("INSERT INTO cart_items (user_id, product_id, quantity, created_at) VALUES (?, ?, ?, ?)", (user["id"], product_id, quantity, now_iso()))
+    else:
+        connection.execute("UPDATE cart_items SET quantity = ? WHERE id = ?", (quantity, existing["id"]))
+    log_activity(connection, user, "UPDATE_BAG", f"Updated {product['name']} quantity to {quantity}.", target_user_id=user["id"])
+    connection.commit()
+    return redirect_with_message(start_response, return_to, "Bag updated")
 
 
 def handle_create_order(environ, start_response, connection, user):
@@ -7848,6 +8338,17 @@ def handle_user_verification(environ, start_response, connection, user):
     return redirect(start_response, "/admin?message=Unknown verification action")
 
 
+def serve_lab_analysis(environ, start_response, connection):
+    try:
+        product_id = int(query_params(environ).get("product_id", "0") or 0)
+    except ValueError:
+        product_id = 0
+    payload = lab_analysis_payload(connection, product_id, allow_remote_fetch=True)
+    if not payload:
+        return json_response(start_response, {"error": "Menu item not found"}, status="404 Not Found")
+    return json_response(start_response, payload)
+
+
 def serve_static(environ, start_response):
     file_path = os.path.join(STATIC_DIR, environ.get("PATH_INFO", "").replace("/static/", "", 1))
     if not os.path.isfile(file_path):
@@ -7879,6 +8380,8 @@ def application(environ, start_response):
             return text_response(start_response, render_store_page(connection, user=user, message=message, filters=params))
         if path == "/menu" and method == "GET":
             return text_response(start_response, render_menu_page(connection, user=user, message=message, filters=params))
+        if path == "/lab-analysis" and method == "GET":
+            return serve_lab_analysis(environ, start_response, connection)
         if path == "/login":
             if method == "POST":
                 return handle_login(environ, start_response, connection)
@@ -7927,6 +8430,8 @@ def application(environ, start_response):
             return handle_add_to_cart(environ, start_response, connection, user)
         if path == "/cart/remove" and method == "POST":
             return handle_remove_from_cart(environ, start_response, connection, user)
+        if path == "/cart/update" and method == "POST":
+            return handle_update_cart_quantity(environ, start_response, connection, user)
         if path == "/cart/checkout" and method == "POST":
             return handle_cart_checkout(environ, start_response, connection, user)
         if path == "/clock" and method == "POST":
