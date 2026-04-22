@@ -184,6 +184,8 @@ a {
   height: auto;
   flex: 0 0 auto;
   filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.35));
+  transform-origin: 50% 58%;
+  animation: logo-spin-bounce 3.8s ease-in-out infinite;
 }
 
 .brand-copy {
@@ -2741,6 +2743,31 @@ tbody tr:hover {
   width: min(140px, 30vw);
   height: auto;
   object-fit: contain;
+  transform-origin: 50% 58%;
+  animation: logo-spin-bounce 3.8s ease-in-out infinite;
+}
+
+@keyframes logo-spin-bounce {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  18% {
+    transform: translateY(-8px) rotate(12deg) scale(1.04);
+  }
+
+  36% {
+    transform: translateY(0) rotate(360deg) scale(1);
+  }
+
+  52% {
+    transform: translateY(-4px) rotate(372deg) scale(1.02);
+  }
+
+  68% {
+    transform: translateY(0) rotate(720deg) scale(1);
+  }
 }
 
 .landing-header-actions {
