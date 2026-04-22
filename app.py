@@ -1851,7 +1851,6 @@ def ensure_column(connection, table_name, definition):
 
 
 def sync_launch_menu(connection):
-    launch_names = {item["name"] for item in LAUNCH_MENU}
     for item in LAUNCH_MENU:
         leafly_reference = infer_leafly_reference(connection, item["name"])
         menu_group, strain_type = infer_product_metadata(item["name"], item["category"], item["description"])
@@ -1901,23 +1900,6 @@ def sync_launch_menu(connection):
                     now_iso(),
                 ),
             )
-
-    existing_products = connection.execute("SELECT id, name FROM products").fetchall()
-    for product in existing_products:
-        if product["name"] in launch_names:
-            continue
-        referenced = connection.execute(
-            "SELECT 1 FROM ticket_items WHERE product_id = ? LIMIT 1",
-            (product["id"],),
-        ).fetchone()
-        if referenced:
-            connection.execute(
-                "UPDATE products SET stock = 0, category = 'General' WHERE id = ?",
-                (product["id"],),
-            )
-        else:
-            connection.execute("DELETE FROM cart_items WHERE product_id = ?", (product["id"],))
-            connection.execute("DELETE FROM products WHERE id = ?", (product["id"],))
 
 
 def get_current_user(environ, connection):
@@ -2600,10 +2582,6 @@ def render_menu_interaction_script():
     return """
     <script>
       (function () {
-        if (window.__budhubMenuInteractionsReady) {
-          return;
-        }
-        window.__budhubMenuInteractionsReady = true;
         document.querySelectorAll('[data-quantity-stepper]').forEach(function (stepper) {
           if (stepper.dataset.quantityReady === 'yes') {
             return;
@@ -2716,6 +2694,15 @@ def render_menu_interaction_script():
       })();
     </script>
     """
+
+
+def render_menu_overlay_shell():
+    return (
+        render_lab_analysis_modal()
+        + render_lab_analysis_script()
+        + render_product_detail_modal()
+        + render_menu_interaction_script()
+    )
 
 
 def average_delivery_eta_minutes(connection, modifier="-1 day"):
@@ -5831,10 +5818,6 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         {brand_markup}
       </div>
     </section>
-    {render_lab_analysis_modal()}
-    {render_lab_analysis_script()}
-    {render_product_detail_modal()}
-    {render_menu_interaction_script()}
     """
     return landing_page(
         APP_NAME,
@@ -5843,7 +5826,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         message=message,
         level=level,
         cart_count=cart_count,
-        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
+        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell(),
     )
 
 
@@ -6111,10 +6094,6 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
     </section>
     {menu_markup}
     {menu_script}
-    {render_lab_analysis_modal()}
-    {render_lab_analysis_script()}
-    {render_product_detail_modal()}
-    {render_menu_interaction_script()}
     <script>
       (function () {{
         var showcase = document.querySelector('[data-menu-showcase]');
@@ -6183,7 +6162,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             level=level,
             cart_count=cart_count,
             active_section="menu",
-            extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
+            extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell(),
         )
     return page(
         f"{APP_NAME} Menu",
@@ -6192,7 +6171,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         message=message,
         level=level,
         cart_count=cart_count,
-        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user),
+        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell(),
     )
 
 
