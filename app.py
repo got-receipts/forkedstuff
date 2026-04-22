@@ -1062,7 +1062,6 @@ def render_cart_widget(connection, user, filters, base_path="/"):
       </div>
       <div class="bag-list">{''.join(rows) if rows else '<p>Your bag is empty. Add something and keep browsing.</p>'}</div>
       <div class="bag-checkout-shell checkout-stage-card">
-      <div class="checkout-steps"><span class="is-active">1 Bag</span><span>2 Delivery</span><span>3 Payment</span><span>4 Submit</span></div>
       <div class="checkout-total"><span>Subtotal</span><strong>{format_money(subtotal)}</strong></div>
       <div class="checkout-total"><span>Available Credits</span><strong>{format_money(user["credit_balance"])}</strong></div>
       <div class="checkout-total"><span>Loyalty Points</span><strong>{int(user["loyalty_points"] or 0)}</strong></div>
@@ -5767,7 +5766,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         product_is_deal = "true" if is_deal_product(product) else "false"
         cards.append(
             f"""
-            <article class="product-card{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
+            <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
               {product_badges_markup(product)}
               <img class="product-card-image" src="{html.escape(product_image)}" alt="{html.escape(product['name'])}" loading="lazy" onerror="this.onerror=null;this.src='/static/budhub-logo.png';this.classList.add('product-card-image-fallback');">
               <div class="product-card-top">
@@ -6001,11 +6000,19 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         render();
       }})();
       (function () {{
-        var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll'));
+        var nodes = Array.prototype.slice.call(document.querySelectorAll('.reveal-on-scroll, .fall-into-place'));
         if (!nodes.length || !('IntersectionObserver' in window)) {{
           nodes.forEach(function (node) {{ node.classList.add('is-visible'); }});
           return;
         }}
+        nodes.forEach(function (node, index) {{
+          if (node.classList.contains('fall-into-place')) {{
+            node.style.setProperty('--fall-delay', Math.min(index % 9, 8) * 70 + 'ms');
+          }}
+          if (!node.classList.contains('menu-showcase')) {{
+            node.classList.remove('is-visible');
+          }}
+        }});
         var observer = new IntersectionObserver(function (entries) {{
           entries.forEach(function (entry) {{
             if (entry.isIntersecting) {{
@@ -6226,7 +6233,6 @@ def render_cart_page(connection, user, message=None, level="info"):
       </section>
       <section class="panel dashboard-panel checkout-stage-card">
         <h2>Checkout</h2>
-        <div class="checkout-steps"><span class="is-active">1 Bag</span><span>2 Delivery</span><span>3 Payment</span><span>4 Submit</span></div>
         <div class="checkout-total"><span>Items</span><strong>{client_cart_count(connection, user["id"])}</strong></div>
         <div class="checkout-total"><span>Subtotal</span><strong>{format_money(subtotal)}</strong></div>
         <div class="checkout-total"><span>Available Credits</span><strong>{format_money(user["credit_balance"])}</strong></div>

@@ -438,15 +438,9 @@ nav {
 
 .store-main {
   min-width: 0;
-  max-height: calc(100vh - 7rem);
-  overflow: auto;
-  padding-right: 0.35rem;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.store-main::-webkit-scrollbar {
-  display: none;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .menu-section-head {
@@ -1046,17 +1040,10 @@ button.source-link {
 }
 
 .cart-widget {
-  position: sticky;
-  top: 1rem;
+  position: static;
   align-self: start;
-  max-height: calc(100vh - 7rem);
-  overflow: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.cart-widget::-webkit-scrollbar {
-  display: none;
+  max-height: none;
+  overflow: visible;
 }
 
 .bag-head,
@@ -1157,32 +1144,7 @@ button.source-link {
 }
 
 .checkout-stage-card {
-  position: sticky;
-  top: 1rem;
-}
-
-.checkout-steps {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.4rem;
-  margin: 0.6rem 0 1rem;
-}
-
-.checkout-steps span {
-  display: grid;
-  place-items: center;
-  min-height: 38px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 800;
-}
-
-.checkout-steps span.is-active {
-  background: rgba(18, 183, 106, 0.18);
-  color: var(--accent-dark);
-  box-shadow: inset 0 0 0 1px rgba(160, 245, 164, 0.18);
+  position: static;
 }
 
 .item-pill {
@@ -1649,7 +1611,6 @@ tbody tr:hover {
     position: static;
   }
 
-  .checkout-steps,
   .product-detail-layout {
     grid-template-columns: 1fr;
   }
