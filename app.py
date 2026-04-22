@@ -1685,6 +1685,150 @@ def lab_analysis_payload(connection, product_id, allow_remote_fetch=False):
     }
 
 
+def numeric_percent(value):
+    match = re.search(r"(\d+(?:\.\d+)?)", str(value or ""))
+    return float(match.group(1)) if match else None
+
+
+def budtender_goal_profile(goal, prompt=""):
+    text = f"{goal} {prompt}".lower()
+    profiles = {
+        "energy": {
+            "types": {"Sativa": 4, "Hybrid": 1},
+            "terms": ["energy", "energetic", "focus", "focused", "uplift", "day", "diesel", "durban", "jack", "mimosa", "haze"],
+            "label": "daytime energy",
+        },
+        "creative": {
+            "types": {"Sativa": 3, "Hybrid": 2},
+            "terms": ["creative", "creativity", "focus", "uplift", "haze", "jack", "gelato", "mimosa"],
+            "label": "creative flow",
+        },
+        "mood": {
+            "types": {"Hybrid": 3, "Sativa": 2},
+            "terms": ["happy", "euphoric", "mood", "uplift", "giggly", "gelato", "runtz", "cake"],
+            "label": "mood lift",
+        },
+        "social": {
+            "types": {"Sativa": 3, "Hybrid": 2},
+            "terms": ["social", "talkative", "open", "giggly", "uplift", "party", "diesel", "mimosa"],
+            "label": "social ease",
+        },
+        "sleep": {
+            "types": {"Indica": 4, "Hybrid": 1},
+            "terms": ["sleep", "sleepy", "night", "rest", "relax", "calm", "kush", "northern", "confidential", "ice cream"],
+            "label": "nighttime rest",
+        },
+        "relax": {
+            "types": {"Indica": 3, "Hybrid": 2},
+            "terms": ["relax", "relaxed", "calm", "mellow", "stress", "euphoric", "kush", "cake", "biscotti", "garlic"],
+            "label": "relaxed comfort",
+        },
+    }
+    for key, profile in profiles.items():
+        if key in text or any(term in text for term in profile["terms"]):
+            return profile
+    return {"types": {"Hybrid": 2, "Sativa": 1, "Indica": 1}, "terms": [], "label": "balanced fit"}
+
+
+def budtender_live_products(connection):
+    return connection.execute(
+        """
+        SELECT
+            products.*,
+            leafly_strains.thc_percent AS lab_thc_percent,
+            leafly_strains.cbd_percent AS lab_cbd_percent,
+            leafly_strains.dominant_terpene AS lab_dominant_terpene,
+            leafly_strains.effects AS lab_effects
+        FROM products
+        LEFT JOIN leafly_strains ON lower(leafly_strains.name) = lower(products.leafly_strain_name)
+        WHERE products.stock > 0
+        ORDER BY products.category COLLATE NOCASE ASC, products.name COLLATE NOCASE ASC
+        """
+    ).fetchall()
+
+
+def budtender_score_product(product, goal_profile, preferred_format, strength, prompt):
+    score = 0
+    reasons = []
+    strain_type = normalize_strain_type(product["strain_type"] or "Unspecified")
+    haystack = " ".join(
+        str(value or "")
+        for value in [
+            product["name"],
+            product["category"],
+            product["description"],
+            product["menu_group"],
+            product["leafly_strain_name"],
+            product["lab_effects"],
+            product["lab_dominant_terpene"],
+            prompt,
+        ]
+    ).lower()
+    if preferred_format and preferred_format != "Any":
+        if product["category"] == preferred_format:
+            score += 6
+            reasons.append(f"{preferred_format} format")
+        else:
+            score -= 4
+    type_points = goal_profile["types"].get(strain_type, 0)
+    if type_points:
+        score += type_points
+        reasons.append(f"{strain_type} profile")
+    for term in goal_profile["terms"]:
+        if term in haystack:
+            score += 2
+    thc_value = numeric_percent(product["lab_thc_percent"])
+    if strength == "Gentle":
+        if thc_value is not None and thc_value <= 18:
+            score += 3
+            reasons.append("gentler THC profile")
+        elif product["category"] == "Edibles":
+            score += 1
+    elif strength == "Balanced":
+        if thc_value is None or 18 <= thc_value <= 25:
+            score += 3
+            reasons.append("balanced potency")
+    elif strength == "Potent":
+        if product["category"] == "Concentrates":
+            score += 4
+            reasons.append("concentrate strength")
+        elif thc_value is not None and thc_value >= 24:
+            score += 3
+            reasons.append("higher THC profile")
+    if product["category"] == "Flower":
+        score += 1
+    if not reasons:
+        reasons.append(goal_profile["label"])
+    return score, ", ".join(reasons[:3])
+
+
+def budtender_recommendations(connection, goal="", preferred_format="Any", strength="Any", prompt=""):
+    goal_profile = budtender_goal_profile(goal, prompt)
+    matches = []
+    for product in budtender_live_products(connection):
+        score, reason = budtender_score_product(product, goal_profile, preferred_format, strength, prompt)
+        if score < -2:
+            continue
+        product_image = product_image_proxy_url(product["image_url"], product["source_url"] or "")
+        category_url = urlencode({"category": product["category"]})
+        matches.append(
+            {
+                "score": score,
+                "id": product["id"],
+                "name": product["name"],
+                "category": product["category"],
+                "strain_type": normalize_strain_type(product["strain_type"] or "Unspecified"),
+                "price": format_money(product["price"]),
+                "stock": int(product["stock"] or 0),
+                "image_url": product_image,
+                "menu_url": f"/menu?{category_url}",
+                "reason": f"Recommended for {goal_profile['label']}: {reason}.",
+            }
+        )
+    matches.sort(key=lambda item: (-item["score"], item["category"], item["name"]))
+    return matches[:4]
+
+
 def serve_product_image(environ, start_response):
     remote_url = query_params(environ).get("url", "").strip()
     source_url = query_params(environ).get("source", "").strip()
@@ -2415,6 +2559,178 @@ def render_help_button(user):
     return '<a class="support-fab" href="/register#support-access">Need Help?</a>'
 
 
+def render_budtender_widget():
+    return """
+  <button type="button" class="budtender-fab" id="budtender-toggle" aria-expanded="false" aria-controls="budtender-panel">
+    <span class="budtender-fab-orb">BT</span>
+    <span>Personal Budtender</span>
+  </button>
+  <aside class="budtender-panel is-hidden" id="budtender-panel" aria-live="polite">
+    <div class="budtender-head">
+      <div>
+        <span class="eyebrow">Personal Budtender</span>
+        <h3>Find your match</h3>
+      </div>
+      <button type="button" class="button ghost modal-close" id="budtender-close">Close</button>
+    </div>
+    <div class="budtender-thread" id="budtender-thread"></div>
+    <form class="budtender-prompt" id="budtender-prompt-form">
+      <label for="budtender-prompt-input">Tell me what you want</label>
+      <div class="budtender-prompt-row">
+        <input id="budtender-prompt-input" name="prompt" type="text" placeholder="Example: relaxed but not sleepy">
+        <button type="submit">Ask</button>
+      </div>
+    </form>
+  </aside>
+  <script>
+    (function () {
+      var toggle = document.getElementById('budtender-toggle');
+      var panel = document.getElementById('budtender-panel');
+      var close = document.getElementById('budtender-close');
+      var thread = document.getElementById('budtender-thread');
+      var form = document.getElementById('budtender-prompt-form');
+      var promptInput = document.getElementById('budtender-prompt-input');
+      if (!toggle || !panel || !thread || !form || !promptInput) {
+        return;
+      }
+      var state = { goal: '', format: 'Any', strength: 'Any', prompt: '' };
+      var steps = [
+        {
+          key: 'goal',
+          title: 'What kind of experience are we aiming for?',
+          options: [
+            ['relax', 'Relax'],
+            ['sleep', 'Sleep'],
+            ['energy', 'Energy'],
+            ['creative', 'Creativity'],
+            ['mood', 'Mood lift'],
+            ['social', 'Social']
+          ]
+        },
+        {
+          key: 'format',
+          title: 'What format sounds right?',
+          options: [
+            ['Any', 'Any'],
+            ['Flower', 'Flower'],
+            ['Concentrates', 'Concentrates'],
+            ['Edibles', 'Edibles'],
+            ['Vapes', 'Vapes']
+          ]
+        },
+        {
+          key: 'strength',
+          title: 'How strong should it feel?',
+          options: [
+            ['Any', 'Any'],
+            ['Gentle', 'Gentle'],
+            ['Balanced', 'Balanced'],
+            ['Potent', 'Potent']
+          ]
+        }
+      ];
+      var stepIndex = 0;
+
+      function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function (char) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char];
+        });
+      }
+
+      function openPanel() {
+        panel.classList.remove('is-hidden');
+        toggle.setAttribute('aria-expanded', 'true');
+        if (!thread.dataset.started) {
+          thread.dataset.started = 'yes';
+          renderStep(0);
+        }
+      }
+
+      function closePanel() {
+        panel.classList.add('is-hidden');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+
+      function addMessage(kind, html) {
+        var node = document.createElement('div');
+        node.className = 'budtender-message budtender-message-' + kind;
+        node.innerHTML = html;
+        thread.appendChild(node);
+        thread.scrollTop = thread.scrollHeight;
+      }
+
+      function renderStep(index) {
+        stepIndex = index;
+        var step = steps[index];
+        if (!step) {
+          findMatches();
+          return;
+        }
+        var choices = step.options.map(function (option) {
+          return '<button type="button" class="budtender-choice" data-budtender-choice="' + escapeHtml(option[0]) + '">' + escapeHtml(option[1]) + '</button>';
+        }).join('');
+        addMessage('bot', '<strong>' + escapeHtml(step.title) + '</strong><div class="budtender-choice-grid">' + choices + '</div>');
+      }
+
+      function findMatches() {
+        addMessage('bot', '<strong>Checking live inventory...</strong><span>Only in-stock BudHub menu items are being considered.</span>');
+        var params = new URLSearchParams(state);
+        fetch('/budtender/recommendations?' + params.toString(), { headers: { Accept: 'application/json' } })
+          .then(function (response) { return response.ok ? response.json() : null; })
+          .then(function (payload) {
+            if (!payload || !payload.matches || !payload.matches.length) {
+              addMessage('bot', '<strong>No exact match right now.</strong><span>Try Any format or Balanced strength and I will widen the search.</span>');
+              return;
+            }
+            var cards = payload.matches.map(function (item) {
+              return '<article class="budtender-result"><img src="' + escapeHtml(item.image_url) + '" alt="' + escapeHtml(item.name) + '"><div><strong>' + escapeHtml(item.name) + '</strong><span>' + escapeHtml(item.category) + ' | ' + escapeHtml(item.strain_type || 'Unspecified') + ' | ' + escapeHtml(item.price) + '</span><p>' + escapeHtml(item.reason) + '</p><a href="' + escapeHtml(item.menu_url) + '">View on menu</a></div></article>';
+            }).join('');
+            addMessage('bot', '<strong>Best live matches</strong><div class="budtender-results">' + cards + '</div><button type="button" class="budtender-reset" data-budtender-reset="yes">Start over</button>');
+          })
+          .catch(function () {
+            addMessage('bot', '<strong>I could not reach live inventory.</strong><span>Please try again in a moment.</span>');
+          });
+      }
+
+      toggle.addEventListener('click', openPanel);
+      if (close) {
+        close.addEventListener('click', closePanel);
+      }
+      thread.addEventListener('click', function (event) {
+        var choice = event.target.closest('[data-budtender-choice]');
+        var reset = event.target.closest('[data-budtender-reset]');
+        if (reset) {
+          state = { goal: '', format: 'Any', strength: 'Any', prompt: '' };
+          thread.innerHTML = '';
+          renderStep(0);
+          return;
+        }
+        if (!choice) {
+          return;
+        }
+        var step = steps[stepIndex];
+        state[step.key] = choice.getAttribute('data-budtender-choice');
+        addMessage('user', escapeHtml(choice.textContent));
+        renderStep(stepIndex + 1);
+      });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        state.prompt = promptInput.value.trim();
+        if (state.prompt) {
+          addMessage('user', escapeHtml(state.prompt));
+        }
+        findMatches();
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          closePanel();
+        }
+      });
+    })();
+  </script>
+    """
+
+
 def render_lab_analysis_button(product, product_strain):
     if not product["source_url"] and not product["leafly_strain_name"]:
         return ""
@@ -2871,6 +3187,7 @@ def page(title, body, user=None, message=None, level="info", cart_count=0, auto_
   </footer>
   {render_age_gate()}
   {extra_shell}
+  {render_budtender_widget()}
   {render_help_button(user)}
 </body>
 </html>"""
@@ -2961,6 +3278,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
   </footer>
   {render_age_gate()}
   {extra_shell}
+  {render_budtender_widget()}
   {render_help_button(user)}
   <script>
     (function () {{
@@ -3117,6 +3435,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
   </div>
   {render_age_gate()}
   {extra_shell}
+  {render_budtender_widget()}
   <script>
     (function () {{
       document.querySelectorAll('[data-trigger-click]').forEach(function (node) {{
@@ -8483,6 +8802,26 @@ def serve_lab_analysis(environ, start_response, connection):
     return json_response(start_response, payload)
 
 
+def serve_budtender_recommendations(environ, start_response, connection):
+    params = query_params(environ)
+    matches = budtender_recommendations(
+        connection,
+        goal=params.get("goal", ""),
+        preferred_format=params.get("format", "Any") or "Any",
+        strength=params.get("strength", "Any") or "Any",
+        prompt=params.get("prompt", ""),
+    )
+    live_count = connection.execute("SELECT COUNT(*) AS count FROM products WHERE stock > 0").fetchone()["count"]
+    return json_response(
+        start_response,
+        {
+            "live_count": live_count,
+            "matches": matches,
+            "note": "Recommendations are filtered to current in-stock BudHub menu items only.",
+        },
+    )
+
+
 def serve_static(environ, start_response):
     file_path = os.path.join(STATIC_DIR, environ.get("PATH_INFO", "").replace("/static/", "", 1))
     if not os.path.isfile(file_path):
@@ -8516,6 +8855,8 @@ def application(environ, start_response):
             return text_response(start_response, render_menu_page(connection, user=user, message=message, filters=params))
         if path == "/lab-analysis" and method == "GET":
             return serve_lab_analysis(environ, start_response, connection)
+        if path == "/budtender/recommendations" and method == "GET":
+            return serve_budtender_recommendations(environ, start_response, connection)
         if path == "/login":
             if method == "POST":
                 return handle_login(environ, start_response, connection)
