@@ -856,6 +856,11 @@ button.source-link {
   margin: 0.2rem 0 0.85rem;
 }
 
+.product-detail-modal-card {
+  width: min(100%, 920px);
+  max-height: min(88vh, 820px);
+}
+
 .product-detail-layout {
   display: grid;
   grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr);

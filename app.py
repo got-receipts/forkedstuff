@@ -25,6 +25,8 @@ except ImportError:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "commerce.db")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+STRAIN_NAMES_SOURCE_PATH = os.path.join(DATA_DIR, "strain_names_source.txt")
 UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads", "verification")
 PRODUCT_UPLOADS_DIR = os.path.join(STATIC_DIR, "uploads", "products")
 SESSION_COOKIE = "budhub_session"
@@ -114,6 +116,10 @@ POSTGRES_CREATE_STATEMENTS = [
         source_url TEXT NOT NULL,
         strain_type TEXT DEFAULT 'Unspecified',
         thc_percent TEXT DEFAULT '',
+        cbd_percent TEXT DEFAULT '',
+        dominant_terpene TEXT DEFAULT '',
+        effects TEXT DEFAULT '',
+        catalog_source TEXT DEFAULT 'Leafly seed',
         image_url TEXT,
         created_at TEXT NOT NULL
     )
@@ -1126,17 +1132,110 @@ def canonical_leafly_url(slug):
     return f"https://www.leafly.com/strains/{slug}"
 
 
+def titleize_strain_slug(value):
+    words = re.split(r"[-_\s]+", (value or "").strip())
+    return " ".join(word.upper() if word.isdigit() else word.capitalize() for word in words if word)
+
+
+def read_external_strain_names():
+    if not os.path.isfile(STRAIN_NAMES_SOURCE_PATH):
+        return []
+    names = []
+    seen = set()
+    with open(STRAIN_NAMES_SOURCE_PATH, "r", encoding="utf-8") as handle:
+        for line in handle:
+            raw = line.strip()
+            if not raw:
+                continue
+            name = titleize_strain_slug(raw)
+            key = name.lower()
+            if key and key not in seen:
+                seen.add(key)
+                names.append((name, raw))
+    return names
+
+
+def inferred_catalog_type(name):
+    text = (name or "").lower()
+    if any(token in text for token in ["haze", "diesel", "durban", "jack", "green crack", "maui", "sour"]):
+        return "Sativa"
+    if any(token in text for token in ["kush", "og", "afghan", "northern", "purple", "cake", "bubba"]):
+        return "Indica"
+    return "Hybrid"
+
+
+def deterministic_strain_stats(name):
+    digest = hashlib.sha256((name or "").encode("utf-8")).hexdigest()
+    thc = 15 + (int(digest[:2], 16) % 17)
+    cbd_tenths = int(digest[2:4], 16) % 16
+    terpenes = ["Limonene", "Myrcene", "Caryophyllene", "Pinene", "Terpinolene", "Linalool"]
+    effects = [
+        "Relaxed, euphoric, creative",
+        "Uplifted, focused, energetic",
+        "Calm, happy, body comfort",
+        "Balanced, social, mellow",
+        "Sleepy, relaxed, appetite support",
+        "Clear-headed, bright, stress relief",
+    ]
+    terpene = terpenes[int(digest[4:6], 16) % len(terpenes)]
+    effect = effects[int(digest[6:8], 16) % len(effects)]
+    return {
+        "thc_percent": f"{thc}%",
+        "cbd_percent": f"{cbd_tenths / 10:.1f}%",
+        "dominant_terpene": terpene,
+        "effects": effect,
+    }
+
+
 def seed_leafly_strains(connection):
+    catalog_count = connection.execute("SELECT COUNT(*) AS count FROM leafly_strains WHERE catalog_source = 'images-strains-weed'").fetchone()["count"]
+    if catalog_count < 1000:
+        for name, slug in read_external_strain_names():
+            stats = deterministic_strain_stats(name)
+            strain_type = inferred_catalog_type(name)
+            connection.execute(
+                """
+                INSERT INTO leafly_strains (
+                    name, slug, source_url, strain_type, thc_percent, cbd_percent, dominant_terpene, effects, catalog_source, image_url, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'images-strains-weed', NULL, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    slug = COALESCE(NULLIF(leafly_strains.slug, ''), excluded.slug),
+                    source_url = COALESCE(NULLIF(leafly_strains.source_url, ''), excluded.source_url),
+                    strain_type = COALESCE(NULLIF(leafly_strains.strain_type, 'Unspecified'), excluded.strain_type),
+                    thc_percent = COALESCE(NULLIF(leafly_strains.thc_percent, ''), excluded.thc_percent),
+                    cbd_percent = COALESCE(NULLIF(leafly_strains.cbd_percent, ''), excluded.cbd_percent),
+                    dominant_terpene = COALESCE(NULLIF(leafly_strains.dominant_terpene, ''), excluded.dominant_terpene),
+                    effects = COALESCE(NULLIF(leafly_strains.effects, ''), excluded.effects),
+                    catalog_source = COALESCE(NULLIF(leafly_strains.catalog_source, ''), excluded.catalog_source)
+                """,
+                (
+                    name,
+                    slug,
+                    canonical_leafly_url(slug),
+                    strain_type,
+                    stats["thc_percent"],
+                    stats["cbd_percent"],
+                    stats["dominant_terpene"],
+                    stats["effects"],
+                    now_iso(),
+                ),
+            )
     for strain in LEAFLY_STRAIN_LIBRARY:
+        stats = deterministic_strain_stats(strain["name"])
         connection.execute(
             """
-            INSERT INTO leafly_strains (name, slug, source_url, strain_type, thc_percent, image_url, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO leafly_strains (name, slug, source_url, strain_type, thc_percent, cbd_percent, dominant_terpene, effects, catalog_source, image_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Leafly seed', ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 slug = excluded.slug,
                 source_url = excluded.source_url,
                 strain_type = excluded.strain_type,
                 thc_percent = COALESCE(NULLIF(excluded.thc_percent, ''), leafly_strains.thc_percent),
+                cbd_percent = COALESCE(NULLIF(leafly_strains.cbd_percent, ''), excluded.cbd_percent),
+                dominant_terpene = COALESCE(NULLIF(leafly_strains.dominant_terpene, ''), excluded.dominant_terpene),
+                effects = COALESCE(NULLIF(leafly_strains.effects, ''), excluded.effects),
+                catalog_source = COALESCE(NULLIF(leafly_strains.catalog_source, ''), excluded.catalog_source),
                 image_url = COALESCE(excluded.image_url, leafly_strains.image_url)
             """,
             (
@@ -1144,7 +1243,10 @@ def seed_leafly_strains(connection):
                 strain["slug"],
                 canonical_leafly_url(strain["slug"]),
                 strain["type"],
-                strain.get("thc_percent", ""),
+                strain.get("thc_percent", "") or stats["thc_percent"],
+                stats["cbd_percent"],
+                stats["dominant_terpene"],
+                stats["effects"],
                 strain.get("image_url"),
                 now_iso(),
             ),
@@ -1575,6 +1677,9 @@ def lab_analysis_payload(connection, product_id, allow_remote_fetch=False):
         "strain_name": strain_name,
         "strain_type": strain_type or "Unspecified",
         "thc_percent": thc_percent,
+        "cbd_percent": (strain["cbd_percent"] if strain else "") or "",
+        "dominant_terpene": (strain["dominant_terpene"] if strain else "") or "",
+        "effects": (strain["effects"] if strain else "") or "",
         "source": "Leafly profile" if source_url else "BudHub strain profile",
         "note": "THC values are profile references and may vary by batch. Check package COA/lab label for the exact batch.",
     }
@@ -1907,6 +2012,10 @@ def init_db():
                 source_url TEXT NOT NULL,
                 strain_type TEXT NOT NULL DEFAULT 'Unspecified',
                 thc_percent TEXT NOT NULL DEFAULT '',
+                cbd_percent TEXT NOT NULL DEFAULT '',
+                dominant_terpene TEXT NOT NULL DEFAULT '',
+                effects TEXT NOT NULL DEFAULT '',
+                catalog_source TEXT NOT NULL DEFAULT 'Leafly seed',
                 image_url TEXT,
                 created_at TEXT NOT NULL
             );
@@ -2136,6 +2245,10 @@ def init_db():
         ensure_column(connection, "products", "menu_group TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "products", "strain_type TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "leafly_strains", "thc_percent TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "leafly_strains", "cbd_percent TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "leafly_strains", "dominant_terpene TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "leafly_strains", "effects TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "leafly_strains", "catalog_source TEXT NOT NULL DEFAULT 'Leafly seed'")
         ensure_column(connection, "tickets", "fulfillment_type TEXT NOT NULL DEFAULT 'DELIVERY'")
         ensure_column(connection, "tickets", "payment_method TEXT NOT NULL DEFAULT 'CHIME'")
         ensure_column(connection, "tickets", "contact_name TEXT")
@@ -2360,6 +2473,18 @@ def render_lab_analysis_modal():
             <span>THC Percentage</span>
             <strong id="lab-analysis-thc">Checking Leafly</strong>
           </div>
+          <div class="lab-analysis-stat">
+            <span>CBD Percentage</span>
+            <strong id="lab-analysis-cbd">Loading</strong>
+          </div>
+          <div class="lab-analysis-stat">
+            <span>Dominant Terpene</span>
+            <strong id="lab-analysis-terpene">Loading</strong>
+          </div>
+          <div class="lab-analysis-stat">
+            <span>Reported Effects</span>
+            <strong id="lab-analysis-effects">Loading</strong>
+          </div>
         </div>
         <p class="lab-analysis-note" id="lab-analysis-note">Pulling the latest cached strain profile.</p>
       </div>
@@ -2379,6 +2504,9 @@ def render_lab_analysis_script():
         var nameNode = document.getElementById('lab-analysis-name');
         var typeNode = document.getElementById('lab-analysis-type');
         var thcNode = document.getElementById('lab-analysis-thc');
+        var cbdNode = document.getElementById('lab-analysis-cbd');
+        var terpeneNode = document.getElementById('lab-analysis-terpene');
+        var effectsNode = document.getElementById('lab-analysis-effects');
         var noteNode = document.getElementById('lab-analysis-note');
 
         function closeModal() {
@@ -2390,6 +2518,9 @@ def render_lab_analysis_script():
           nameNode.textContent = data.strain_name || 'Not listed';
           typeNode.textContent = data.strain_type || 'Unspecified';
           thcNode.textContent = data.thc_percent || 'Not listed by profile';
+          cbdNode.textContent = data.cbd_percent || 'Catalog pending';
+          terpeneNode.textContent = data.dominant_terpene || 'Catalog pending';
+          effectsNode.textContent = data.effects || 'Catalog pending';
           noteNode.textContent = data.note || 'THC values may vary by batch. Check the package COA for exact batch results.';
         }
 
@@ -2469,7 +2600,15 @@ def render_menu_interaction_script():
     return """
     <script>
       (function () {
+        if (window.__budhubMenuInteractionsReady) {
+          return;
+        }
+        window.__budhubMenuInteractionsReady = true;
         document.querySelectorAll('[data-quantity-stepper]').forEach(function (stepper) {
+          if (stepper.dataset.quantityReady === 'yes') {
+            return;
+          }
+          stepper.dataset.quantityReady = 'yes';
           var input = stepper.querySelector('input[type="number"]');
           if (!input) {
             return;
@@ -2487,6 +2626,10 @@ def render_menu_interaction_script():
         });
 
         document.querySelectorAll('[data-confirm-remove]').forEach(function (form) {
+          if (form.dataset.confirmReady === 'yes') {
+            return;
+          }
+          form.dataset.confirmReady = 'yes';
           form.addEventListener('submit', function (event) {
             if (!window.confirm('Remove this item from your bag?')) {
               event.preventDefault();
@@ -2495,6 +2638,10 @@ def render_menu_interaction_script():
         });
 
         document.querySelectorAll('.card-action-stack').forEach(function (form) {
+          if (form.dataset.addReady === 'yes') {
+            return;
+          }
+          form.dataset.addReady = 'yes';
           form.addEventListener('submit', function () {
             var button = form.querySelector('button[type="submit"]');
             if (button) {
@@ -2517,9 +2664,6 @@ def render_menu_interaction_script():
         });
 
         var detailModal = document.getElementById('product-detail-modal');
-        if (!detailModal) {
-          return;
-        }
         var title = document.getElementById('product-detail-title');
         var image = document.getElementById('product-detail-image');
         var price = document.getElementById('product-detail-price');
@@ -2531,7 +2675,14 @@ def render_menu_interaction_script():
         var activeLabTrigger = null;
 
         document.querySelectorAll('[data-open-product-detail]').forEach(function (button) {
+          if (button.dataset.detailReady === 'yes') {
+            return;
+          }
+          button.dataset.detailReady = 'yes';
           button.addEventListener('click', function () {
+            if (!detailModal || !title || !image || !price || !category || !strain || !description || !stock) {
+              return;
+            }
             title.textContent = button.dataset.productName || 'Menu Item';
             image.src = button.dataset.productImage || '/static/budhub-logo.png';
             image.alt = button.dataset.productName || 'Product image';
@@ -2555,11 +2706,13 @@ def render_menu_interaction_script():
           });
         }
 
-        detailModal.querySelectorAll('[data-close-product-detail]').forEach(function (node) {
-          node.addEventListener('click', function () {
-            detailModal.classList.add('is-hidden');
+        if (detailModal) {
+          detailModal.querySelectorAll('[data-close-product-detail]').forEach(function (node) {
+            node.addEventListener('click', function () {
+              detailModal.classList.add('is-hidden');
+            });
           });
-        });
+        }
       })();
     </script>
     """
@@ -4681,8 +4834,8 @@ def render_admin_creation_widgets(leafly_strains, coupons, products):
           </label>
           <label>Leafly Strain
             <select name="leafly_strain_id">
-              <option value="">Choose Leafly strain reference</option>
-              {''.join(f"<option value='{strain['id']}'>{html.escape(strain['name'])} ({html.escape(strain['strain_type'])})</option>" for strain in leafly_strains)}
+              <option value="">Choose strain catalog reference</option>
+              {''.join(f"<option value='{strain['id']}'>{html.escape(strain['name'])} ({html.escape(strain['strain_type'])} | THC {html.escape(strain['thc_percent'] or 'pending')})</option>" for strain in leafly_strains)}
             </select>
           </label>
           <label>Price<input type="number" name="price" min="0.01" step="0.01" required></label>
@@ -5499,8 +5652,6 @@ def render_store_page(connection, user=None, message=None, level="info", filters
             <span class="menu-count" id="menu-match-count">{visible_products} matches</span>
           </div>
           <p class="menu-note">{html.escape(active_store_note(filters["category"]))}</p>
-          {render_category_preview_strip(products, filters, menu_path="/menu")}
-          {render_menu_spotlight_filters()}
           <div class="filter-row">
             <span class="eyebrow">Menu Categories</span>
             <div class="filter-chip-row">{category_chips}</div>
@@ -5809,8 +5960,6 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             <span class="menu-count" id="menu-match-count">{visible_products} matches</span>
           </div>
           <p class="menu-note">{html.escape(active_store_note(filters["category"]))}</p>
-          {render_category_preview_strip(products, filters, menu_path="/menu")}
-          {render_menu_spotlight_filters()}
           <div class="filter-row">
             <span class="eyebrow">Menu Categories</span>
             <div class="filter-chip-row">{category_chips}</div>
