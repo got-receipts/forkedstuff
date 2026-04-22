@@ -6,8 +6,10 @@ import os
 import re
 import secrets
 import sqlite3
+from collections import deque
 from datetime import datetime
 from http import cookies
+from threading import Lock
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -36,6 +38,9 @@ APP_TAGLINE = "The 518 cannabis delivery platform for the wider Capital Region."
 CLEANUP_DONE = False
 POSTGRES_INIT_ATTEMPTED = False
 POSTGRES_SYNC_IN_PROGRESS = False
+SERVER_LOG_EVENTS = deque(maxlen=300)
+SERVER_LOG_LOCK = Lock()
+SERVER_LOG_SEQUENCE = 0
 EMPLOYEE_ROLES = {"banker", "dispatcher", "picker", "driver"}
 ALLOWED_PRODUCT_IMAGE_HOSTS = {"images.leafly.com", "leafly-public.imgix.net"}
 PAYMENT_METHOD_OPTIONS = ["VENMO", "CHIME", "CASH_APP", "ZELLE", "APPLE_PAY", "GOOGLE_PAY", "CASH"]
@@ -793,6 +798,41 @@ def now_iso():
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def compact_log_value(value, limit=900):
+    text = str(value or "").replace("\r", " ").strip()
+    text = re.sub(r"\s+", " ", text)
+    return text[:limit]
+
+
+def append_server_log(source, level, message, details="", user=None, environ=None):
+    global SERVER_LOG_SEQUENCE
+    with SERVER_LOG_LOCK:
+        SERVER_LOG_SEQUENCE += 1
+        entry_id = SERVER_LOG_SEQUENCE
+        SERVER_LOG_EVENTS.append(
+            {
+                "id": entry_id,
+                "created_at": now_iso(),
+                "source": compact_log_value(source, 28) or "server",
+                "level": compact_log_value(level, 16).lower() or "info",
+                "message": compact_log_value(message, 240),
+                "details": compact_log_value(details, 1200),
+                "path": compact_log_value(environ.get("PATH_INFO", "") if environ else "", 160),
+                "method": compact_log_value(environ.get("REQUEST_METHOD", "") if environ else "", 12),
+                "remote_addr": compact_log_value(environ.get("REMOTE_ADDR", "") if environ else "", 80),
+                "user": compact_log_value(user["email"] if user and user["email"] else user["name"] if user else "Guest", 160),
+                "role": compact_log_value(user["role"] if user else "guest", 32),
+            }
+        )
+    return entry_id
+
+
+def recent_server_logs(since_id=0, limit=100):
+    with SERVER_LOG_LOCK:
+        rows = [row.copy() for row in SERVER_LOG_EVENTS if row["id"] > since_id]
+    return rows[-limit:]
+
+
 def hash_password(password):
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
@@ -1463,6 +1503,125 @@ def render_engineer_profile_updates_widget(connection):
           node.addEventListener('click', closeModal);
         }});
       }})();
+  </script>
+    """
+
+
+def render_engineer_live_console_widget():
+    initial_rows = recent_server_logs(limit=80)
+    initial_payload = html.escape(json.dumps(initial_rows))
+    return f"""
+    <section class="panel engineer-console-panel" id="engineer-live-console" data-current-id="0" data-initial-events="{initial_payload}">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Engineer Console</span>
+          <h2>Live server and website logs</h2>
+        </div>
+        <div class="card-buttons">
+          <button type="button" class="button ghost" id="engineer-console-pause">Pause</button>
+          <button type="button" id="engineer-console-refresh">Refresh</button>
+        </div>
+      </div>
+      <div class="engineer-console-status">
+        <span id="engineer-console-count">0 events</span>
+        <span id="engineer-console-state">Live</span>
+      </div>
+      <div class="engineer-console-stream" id="engineer-console-stream" aria-live="polite">
+        <p class="subtle">Waiting for server activity.</p>
+      </div>
+    </section>
+    <script>
+      (function () {{
+        var shell = document.getElementById('engineer-live-console');
+        var stream = document.getElementById('engineer-console-stream');
+        var pauseButton = document.getElementById('engineer-console-pause');
+        var refreshButton = document.getElementById('engineer-console-refresh');
+        var countNode = document.getElementById('engineer-console-count');
+        var stateNode = document.getElementById('engineer-console-state');
+        if (!shell || !stream || !pauseButton || !refreshButton) {{
+          return;
+        }}
+        var paused = false;
+        var events = [];
+        var currentId = 0;
+
+        function clean(value) {{
+          return String(value || '').replace(/_/g, ' ');
+        }}
+
+        function render() {{
+          stream.innerHTML = '';
+          if (!events.length) {{
+            stream.innerHTML = '<p class="subtle">Waiting for server activity.</p>';
+            countNode.textContent = '0 events';
+            return;
+          }}
+          events.slice(-80).reverse().forEach(function (item) {{
+            var row = document.createElement('article');
+            row.className = 'engineer-console-entry is-' + clean(item.level).toLowerCase();
+            var meta = document.createElement('div');
+            meta.className = 'engineer-console-meta';
+            meta.textContent = '[' + item.created_at + '] ' + clean(item.level).toUpperCase() + ' | ' + item.source + ' | ' + (item.method ? item.method + ' ' : '') + (item.path || '') + ' | ' + item.user + ' (' + item.role + ')';
+            var message = document.createElement('strong');
+            message.textContent = item.message || 'No message';
+            row.appendChild(meta);
+            row.appendChild(message);
+            if (item.details) {{
+              var details = document.createElement('p');
+              details.textContent = item.details;
+              row.appendChild(details);
+            }}
+            stream.appendChild(row);
+          }});
+          countNode.textContent = events.length + (events.length === 1 ? ' event' : ' events');
+        }}
+
+        function addRows(rows) {{
+          rows.forEach(function (item) {{
+            if (item.id > currentId) {{
+              currentId = item.id;
+            }}
+            events.push(item);
+          }});
+          if (events.length > 120) {{
+            events = events.slice(-120);
+          }}
+          shell.dataset.currentId = String(currentId);
+          render();
+        }}
+
+        function poll(force) {{
+          if (paused && !force) {{
+            return;
+          }}
+          fetch('/engineer/console-events?since=' + encodeURIComponent(currentId), {{ headers: {{ Accept: 'application/json' }} }})
+            .then(function (response) {{ return response.ok ? response.json() : null; }})
+            .then(function (payload) {{
+              if (!payload || !payload.events) {{
+                return;
+              }}
+              addRows(payload.events);
+              stateNode.textContent = paused ? 'Paused' : 'Live';
+            }})
+            .catch(function () {{
+              stateNode.textContent = 'Connection issue';
+            }});
+        }}
+
+        try {{
+          addRows(JSON.parse(shell.getAttribute('data-initial-events') || '[]'));
+        }} catch (error) {{
+          render();
+        }}
+        pauseButton.addEventListener('click', function () {{
+          paused = !paused;
+          pauseButton.textContent = paused ? 'Resume' : 'Pause';
+          stateNode.textContent = paused ? 'Paused' : 'Live';
+        }});
+        refreshButton.addEventListener('click', function () {{ poll(true); }});
+        window.setInterval(poll, 3000);
+        poll(true);
+      }})();
     </script>
     """
 
@@ -1906,6 +2065,21 @@ def read_post_data(environ):
     raw = environ["wsgi.input"].read(size).decode("utf-8")
     parsed = parse_qs(raw)
     return {key: value[0].strip() for key, value in parsed.items()}
+
+
+def read_json_data(environ):
+    try:
+        size = int(environ.get("CONTENT_LENGTH") or "0")
+    except ValueError:
+        size = 0
+    if size <= 0:
+        return {}
+    raw = environ["wsgi.input"].read(min(size, 12000)).decode("utf-8", errors="ignore")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def read_multipart_form(environ):
@@ -2559,6 +2733,68 @@ def render_help_button(user):
     return '<a class="support-fab" href="/register#support-access">Need Help?</a>'
 
 
+def render_site_console_capture():
+    return """
+  <script>
+    (function () {
+      if (window.__budhubConsoleCapture) {
+        return;
+      }
+      window.__budhubConsoleCapture = true;
+      var sending = false;
+      function stringify(value) {
+        if (value instanceof Error) {
+          return value.stack || value.message;
+        }
+        if (typeof value === 'object') {
+          try {
+            return JSON.stringify(value);
+          } catch (error) {
+            return String(value);
+          }
+        }
+        return String(value);
+      }
+      function report(level, args, details) {
+        if (sending) {
+          return;
+        }
+        var message = Array.prototype.slice.call(args || []).map(stringify).join(' ');
+        var payload = {
+          level: level,
+          message: message.slice(0, 900),
+          details: String(details || '').slice(0, 1200),
+          url: window.location.href,
+          user_agent: navigator.userAgent
+        };
+        sending = true;
+        fetch('/engineer/browser-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true
+        }).catch(function () {}).finally(function () {
+          sending = false;
+        });
+      }
+      ['warn', 'error'].forEach(function (level) {
+        var original = console[level];
+        console[level] = function () {
+          original.apply(console, arguments);
+          report(level, arguments);
+        };
+      });
+      window.addEventListener('error', function (event) {
+        report('error', [event.message], (event.filename || '') + ':' + (event.lineno || '') + ':' + (event.colno || ''));
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        report('error', ['Unhandled promise rejection', event.reason], 'unhandledrejection');
+      });
+    })();
+  </script>
+    """
+
+
 def render_budtender_widget():
     return """
   <button type="button" class="budtender-fab" id="budtender-toggle" aria-expanded="false" aria-controls="budtender-panel">
@@ -2574,13 +2810,6 @@ def render_budtender_widget():
       <button type="button" class="button ghost modal-close" id="budtender-close">Close</button>
     </div>
     <div class="budtender-thread" id="budtender-thread"></div>
-    <form class="budtender-prompt" id="budtender-prompt-form">
-      <label for="budtender-prompt-input">Tell me what you want</label>
-      <div class="budtender-prompt-row">
-        <input id="budtender-prompt-input" name="prompt" type="text" placeholder="Example: relaxed but not sleepy">
-        <button type="submit">Ask</button>
-      </div>
-    </form>
   </aside>
   <script>
     (function () {
@@ -2588,9 +2817,7 @@ def render_budtender_widget():
       var panel = document.getElementById('budtender-panel');
       var close = document.getElementById('budtender-close');
       var thread = document.getElementById('budtender-thread');
-      var form = document.getElementById('budtender-prompt-form');
-      var promptInput = document.getElementById('budtender-prompt-input');
-      if (!toggle || !panel || !thread || !form || !promptInput) {
+      if (!toggle || !panel || !thread) {
         return;
       }
       var state = { goal: '', format: 'Any', strength: 'Any', prompt: '' };
@@ -2712,14 +2939,6 @@ def render_budtender_widget():
         state[step.key] = choice.getAttribute('data-budtender-choice');
         addMessage('user', escapeHtml(choice.textContent));
         renderStep(stepIndex + 1);
-      });
-      form.addEventListener('submit', function (event) {
-        event.preventDefault();
-        state.prompt = promptInput.value.trim();
-        if (state.prompt) {
-          addMessage('user', escapeHtml(state.prompt));
-        }
-        findMatches();
       });
       document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape') {
@@ -3189,6 +3408,7 @@ def page(title, body, user=None, message=None, level="info", cart_count=0, auto_
   {extra_shell}
   {render_budtender_widget()}
   {render_help_button(user)}
+  {render_site_console_capture()}
 </body>
 </html>"""
 
@@ -3280,6 +3500,7 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
   {extra_shell}
   {render_budtender_widget()}
   {render_help_button(user)}
+  {render_site_console_capture()}
   <script>
     (function () {{
       var drawer = document.getElementById('landing-drawer');
@@ -3436,6 +3657,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
   {render_age_gate()}
   {extra_shell}
   {render_budtender_widget()}
+  {render_site_console_capture()}
   <script>
     (function () {{
       document.querySelectorAll('[data-trigger-click]').forEach(function (node) {{
@@ -4004,6 +4226,7 @@ def log_activity(connection, actor, action, details="", target_user_id=None):
             now_iso(),
         ),
     )
+    append_server_log("activity", "info", action, details, user=actor)
 
 
 def coupon_rows(connection, where_clause="", params=()):
@@ -7503,6 +7726,7 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     </div>
     {render_finance_sparkline_panel(finance)}
     {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
+    {render_engineer_live_console_widget() if user["role"] == "helpdesk" else ""}
     {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
     {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
     {engineer_sections}
@@ -8822,6 +9046,42 @@ def serve_budtender_recommendations(environ, start_response, connection):
     )
 
 
+def serve_engineer_console_events(environ, start_response, user):
+    gate = require_role(start_response, user, {"helpdesk"})
+    if gate:
+        return gate
+    try:
+        since_id = int(query_params(environ).get("since", "0") or "0")
+    except ValueError:
+        since_id = 0
+    return json_response(
+        start_response,
+        {
+            "events": recent_server_logs(since_id=since_id, limit=100),
+            "server_time": now_iso(),
+        },
+    )
+
+
+def handle_browser_console_log(environ, start_response, user):
+    payload = read_json_data(environ)
+    level = payload.get("level", "info")
+    if level not in {"debug", "info", "warn", "error"}:
+        level = "info"
+    url = compact_log_value(payload.get("url", ""), 240)
+    details = compact_log_value(payload.get("details", ""), 900)
+    user_agent = compact_log_value(payload.get("user_agent", ""), 240)
+    append_server_log(
+        "browser",
+        level,
+        payload.get("message", "Browser console event"),
+        f"{details} {url} {user_agent}".strip(),
+        user=user,
+        environ=environ,
+    )
+    return json_response(start_response, {"ok": True})
+
+
 def serve_static(environ, start_response):
     file_path = os.path.join(STATIC_DIR, environ.get("PATH_INFO", "").replace("/static/", "", 1))
     if not os.path.isfile(file_path):
@@ -8847,6 +9107,12 @@ def application(environ, start_response):
         user = get_current_user(environ, connection)
         params = query_params(environ)
         message = params.get("message")
+        if path == "/engineer/browser-log" and method == "POST":
+            return handle_browser_console_log(environ, start_response, user)
+        if path == "/engineer/console-events" and method == "GET":
+            return serve_engineer_console_events(environ, start_response, user)
+        if path not in {"/engineer/console-events", "/engineer/browser-log"}:
+            append_server_log("request", "info", f"{method} {path}", user=user, environ=environ)
         if user and account_restricted(user) and path not in {"/dashboard", "/logout", "/help"}:
             return redirect(start_response, "/dashboard?message=Your account is restricted")
         if path == "/" and method == "GET":
@@ -8964,7 +9230,11 @@ app = Flask(__name__, static_folder="static", static_url_path="/static")
 @app.route("/", defaults={"path": ""}, methods=["GET", "POST"])
 @app.route("/<path:path>", methods=["GET", "POST"])
 def flask_routes(path):
-    return Response.from_app(application, request.environ)
+    try:
+        return Response.from_app(application, request.environ)
+    except Exception as exc:
+        append_server_log("server", "error", "Unhandled application error", repr(exc), environ=request.environ)
+        raise
 
 
 if __name__ == "__main__":
