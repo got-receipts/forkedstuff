@@ -2084,7 +2084,75 @@ def cleanup_generated_tickets(connection):
 def flash_message(message, level="info"):
     if not message:
         return ""
-    return f'<div class="flash flash-{html.escape(level)}">{html.escape(message)}</div>'
+    return f'<div class="flash flash-{html.escape(level)}"><span>{html.escape(message)}</span></div>'
+
+
+def dashboard_metric_card(title, value, icon_name="product.png", trend="", trend_level="up"):
+    trend_markup = f'<small class="dashboard-card-trend trend-{html.escape(trend_level)}">{html.escape(trend)}</small>' if trend else ""
+    return f"""
+    <article class="dashboard-analytics-card dashboard-analytics-card-polished">
+      <div class="dashboard-analytics-icon"><img src="{landing_asset_url(icon_name)}" alt="{html.escape(title)}"></div>
+      <div>
+        <span>{html.escape(title)}</span>
+        <strong>{html.escape(str(value))}</strong>
+        {trend_markup}
+      </div>
+    </article>
+    """
+
+
+def dashboard_context_banner(eyebrow, title, body, action_label="", action_href=""):
+    action_markup = f'<a class="button ghost" href="{html.escape(action_href)}">{html.escape(action_label)}</a>' if action_label and action_href else ""
+    return f"""
+    <section class="dashboard-context-banner">
+      <div>
+        <span class="eyebrow">{html.escape(eyebrow)}</span>
+        <h2>{html.escape(title)}</h2>
+        <p>{html.escape(body)}</p>
+      </div>
+      {action_markup}
+    </section>
+    """
+
+
+def finance_sparkline_points(values, width=320, height=90):
+    safe_values = [float(value or 0) for value in values]
+    if not safe_values:
+        safe_values = [0]
+    low = min(safe_values)
+    high = max(safe_values)
+    spread = high - low or 1
+    step = width / max(len(safe_values) - 1, 1)
+    points = []
+    for index, value in enumerate(safe_values):
+        x = round(index * step, 2)
+        y = round(height - ((value - low) / spread * (height - 18)) - 9, 2)
+        points.append(f"{x},{y}")
+    return " ".join(points)
+
+
+def render_finance_sparkline_panel(finance):
+    values = [finance["day"], finance["week"], finance["month"]]
+    labels = ["Today", "Week", "Month"]
+    stat_markup = "".join(
+        f"<div><span>{label}</span><strong>{format_money(value)}</strong></div>"
+        for label, value in zip(labels, values)
+    )
+    return f"""
+    <section class="panel dashboard-chart-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow">Finance Tracker</span>
+          <h2>Sales Analytics</h2>
+        </div>
+        <span class="dashboard-chart-chip">Live</span>
+      </div>
+      <svg class="dashboard-sparkline" viewBox="0 0 320 90" role="img" aria-label="Sales sparkline">
+        <polyline points="{finance_sparkline_points(values)}"></polyline>
+      </svg>
+      <div class="dashboard-chart-stats">{stat_markup}</div>
+    </section>
+    """
 
 
 def render_help_button(user):
@@ -2373,19 +2441,26 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
         nodes.forEach(function (node) {{ node.classList.add('is-visible'); }});
         return;
       }}
-      var observer = new IntersectionObserver(function (entries) {{
-        entries.forEach(function (entry) {{
-          if (entry.isIntersecting) {{
-            entry.target.classList.add('is-visible');
-            observer.unobserve(entry.target);
-          }}
-        }});
-      }}, {{ threshold: 0.18 }});
       nodes.forEach(function (node, index) {{
         if (node.classList.contains('fall-into-place')) {{
           node.style.setProperty('--fall-delay', Math.min(index % 9, 8) * 70 + 'ms');
         }}
-        observer.observe(node);
+        if (!node.classList.contains('landing-hero')) {{
+          node.classList.remove('is-visible');
+        }}
+      }});
+      window.requestAnimationFrame(function () {{
+        var observer = new IntersectionObserver(function (entries) {{
+          entries.forEach(function (entry) {{
+            if (entry.isIntersecting) {{
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            }}
+          }});
+        }}, {{ threshold: 0.18 }});
+        nodes.forEach(function (node) {{
+          observer.observe(node);
+        }});
       }});
     }})();
   </script>
@@ -2471,6 +2546,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
               <strong>{html.escape(user["name"] if user else "Guest")}</strong>
               <span>{html.escape(role_label)}</span>
             </div>
+            <span class="dashboard-account-chevron">⌄</span>
           </button>
           {activity_button}
           <div class="dashboard-account-menu is-hidden" id="dashboard-account-menu">
@@ -2478,7 +2554,7 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
           </div>
         </div>
       </header>
-      <main class="dashboard-main">
+      <main class="dashboard-main dashboard-page-reveal">
         {flash_message(message, level)}
         {body}
       </main>
@@ -2802,9 +2878,9 @@ def register_form(error=""):
             <label>Email<input type="email" name="email" required></label>
             <label>Phone Number<input type="tel" name="phone" required></label>
             <label>Password<input type="password" name="password" minlength="6" required></label>
-            <label>ID Front Photo<input type="file" name="id_front" accept="image/*" required></label>
-        <label>ID Back Photo<input type="file" name="id_back" accept="image/*" required></label>
-        <label>Selfie Holding ID<input type="file" name="id_selfie" accept="image/*" required></label>
+            <label class="file-drop-label">ID Front Photo<span class="file-drop-zone">Drop or select ID front<input type="file" name="id_front" accept="image/*" required></span></label>
+        <label class="file-drop-label">ID Back Photo<span class="file-drop-zone">Drop or select ID back<input type="file" name="id_back" accept="image/*" required></span></label>
+        <label class="file-drop-label">Selfie Holding ID<span class="file-drop-zone">Drop or select selfie<input type="file" name="id_selfie" accept="image/*" required></span></label>
         <button type="submit">Create Account</button>
       </form>
       <div class="login-support-row" id="support-access">
@@ -5606,24 +5682,14 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
         """
         cards.append(render_ticket_modal(modal_id, f"Ticket {ticket['ticket_number']}", summary_html, detail_html, ticket["id"]))
     body = f"""
+    {dashboard_context_banner("Customer Console", "Your BudHub command center", "Track orders, loyalty points, verification status, and bag activity from one place.", "Browse Menu", "/menu")}
     <section class="dashboard-analytics-grid">
-      <article class="dashboard-analytics-card">
-        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('product.png')}" alt="Orders"></div>
-        <div><span>Total Orders</span><strong>{len(tickets)}</strong></div>
-      </article>
-      <article class="dashboard-analytics-card">
-        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Open Orders"></div>
-        <div><span>Open Orders</span><strong>{open_count}</strong></div>
-      </article>
-      <article class="dashboard-analytics-card">
-        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Delivered"></div>
-        <div><span>Delivered</span><strong>{delivered_count}</strong></div>
-      </article>
-      <article class="dashboard-analytics-card">
-        <div class="dashboard-analytics-icon"><img src="{landing_asset_url('search (1).png')}" alt="Balance Due"></div>
-        <div><span>Balance Due</span><strong>{format_money(outstanding_total)}</strong></div>
-      </article>
+      {dashboard_metric_card("Total Orders", len(tickets), "product.png", "all-time tickets", "up")}
+      {dashboard_metric_card("Open Orders", open_count, "package.png", "active right now", "warn" if open_count else "up")}
+      {dashboard_metric_card("Delivered", delivered_count, "destination.png", "completed orders", "up")}
+      {dashboard_metric_card("Balance Due", format_money(outstanding_total), "search (1).png", "payment tracker", "warn" if outstanding_total else "up")}
     </section>
+    {render_client_loyalty_verification_panel(user, open_count)}
     <section class="panel dashboard-panel">
       <div class="panel-head">
         <h2>Your Budhub Orders</h2>
@@ -6365,6 +6431,7 @@ def render_admin_home(connection, user, message=None, level="info"):
         ("menu", "/menu", "Menu", "search (1).png"),
     ]
     body = f"""
+    {dashboard_context_banner("Operations Console", title, "Live BudHub operations, finance, ticket, and account signals in one cockpit.", "View Menu", "/menu")}
     <section class="panel dashboard-panel">
       <div class="panel-head">
         <div>
@@ -6373,14 +6440,15 @@ def render_admin_home(connection, user, message=None, level="info"):
         </div>
       </div>
       <div class="dashboard-analytics-grid">
-        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('product.png')}" alt="Accounts"></div><div><span>Total Accounts</span><strong>{users_total}</strong></div></article>
-        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('package.png')}" alt="Menu Items"></div><div><span>Menu Items</span><strong>{products_total}</strong></div></article>
-        <article class="dashboard-analytics-card"><div class="dashboard-analytics-icon"><img src="{landing_asset_url('destination.png')}" alt="Budhub Tickets"></div><div><span>Budhub Tickets</span><strong>{tickets_total}</strong></div></article>
+        {dashboard_metric_card("Total Accounts", users_total, "product.png", "managed users", "up")}
+        {dashboard_metric_card("Menu Items", products_total, "package.png", "catalog count", "up")}
+        {dashboard_metric_card("Budhub Tickets", tickets_total, "destination.png", "all-time tickets", "up")}
       </div>
       <div class="dashboard-analytics-grid">
         {overview_cards}
       </div>
     </section>
+    {render_finance_sparkline_panel(finance)}
     {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
     {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
     {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
@@ -6497,11 +6565,13 @@ def render_admin_dashboard(connection, user, message=None, level="info"):
     </section>
         """
     body = f"""
+    {dashboard_context_banner("Admin Tools", title, "Open focused pop-up tools from the left panel while keeping high-priority activity visible here.", "View Customer Menu", "/menu")}
     {render_account_stats_panel(connection, user)}
     {render_staff_clock_panel(connection, user)}
     <div class="dashboard-analytics-grid">
       {overview_cards}
     </div>
+    {render_finance_sparkline_panel(finance)}
     {render_engineer_profile_updates_widget(connection) if user["role"] == "helpdesk" else ""}
     {render_admin_dashboard_activity_sections(tickets, order_chat_logs)}
     {render_admin_dashboard_modal_deck(connection, user, users, products, coupons, leafly_strains, payroll, user_stats, verification_queue)}
@@ -6574,6 +6644,39 @@ def render_helpdesk_dashboard(connection, user, message=None, level="info"):
     </section>
     """
     return page("Budhub Help", body, user=user, message=message, level=level, auto_refresh=True)
+
+
+def verification_status_label(status):
+    labels = {
+        "VERIFIED": "Verified",
+        "PENDING_REVIEW": "Pending Review",
+        "REJECTED": "Needs Update",
+    }
+    return labels.get(status or "", status or "Unknown")
+
+
+def render_client_loyalty_verification_panel(user, open_count):
+    status = user["verification_status"] or "VERIFIED"
+    status_level = "up" if status == "VERIFIED" else "warn"
+    return f"""
+    <section class="dashboard-client-insights">
+      <article class="dashboard-loyalty-card">
+        <span class="eyebrow">Loyalty Points</span>
+        <strong>{int(user["loyalty_points"] or 0)}</strong>
+        <p>Use points at checkout to lower your next order.</p>
+      </article>
+      <article class="dashboard-loyalty-card">
+        <span class="eyebrow">ID Verification</span>
+        <strong>{html.escape(verification_status_label(status))}</strong>
+        <p>{'Ready to order.' if status == 'VERIFIED' else 'Our team will review this before checkout access is fully open.'}</p>
+      </article>
+      <article class="dashboard-loyalty-card">
+        <span class="eyebrow">Open Orders</span>
+        <strong>{open_count}</strong>
+        <p>Track active BudHub tickets from your dashboard.</p>
+      </article>
+    </section>
+    """
 
 
 def render_dashboard(connection, user, message=None, level="info", open_ticket_id=None):
