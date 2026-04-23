@@ -110,6 +110,12 @@ POSTGRES_CREATE_STATEMENTS = [
         stock INTEGER NOT NULL,
         menu_group TEXT DEFAULT '',
         strain_type TEXT DEFAULT '',
+        thc_content TEXT DEFAULT '',
+        cbd_content TEXT DEFAULT '',
+        servings TEXT DEFAULT '',
+        net_weight TEXT DEFAULT '',
+        package_id TEXT DEFAULT '',
+        tier_prices TEXT DEFAULT '',
         created_at TEXT NOT NULL
     )
     """,
@@ -189,6 +195,18 @@ POSTGRES_CREATE_STATEMENTS = [
         product_id INTEGER NOT NULL,
         quantity INTEGER NOT NULL,
         locked_price REAL NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_reviews (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        ticket_id INTEGER NOT NULL,
+        rating INTEGER NOT NULL,
+        review_text TEXT DEFAULT '',
+        created_at TEXT NOT NULL,
+        UNIQUE(product_id, user_id, ticket_id)
     )
     """,
     """
@@ -325,6 +343,7 @@ POSTGRES_SYNC_TABLES = [
     "delivery_blocks",
     "tickets",
     "ticket_items",
+    "product_reviews",
     "support_tickets",
     "support_messages",
     "order_messages",
@@ -346,6 +365,7 @@ POSTGRES_SERIAL_TABLES = {
     "delivery_blocks",
     "tickets",
     "ticket_items",
+    "product_reviews",
     "support_tickets",
     "support_messages",
     "order_messages",
@@ -839,6 +859,214 @@ def hash_password(password):
 
 def format_money(value):
     return f"${value:,.2f}"
+
+
+def parse_tier_prices(raw_value):
+    if not raw_value:
+        return []
+    if isinstance(raw_value, str):
+        text = raw_value.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                data = json.loads(text)
+                tiers = []
+                for item in data:
+                    label = str(item.get("label", "")).strip()
+                    price = float(item.get("price", 0))
+                    if label and price > 0:
+                        tiers.append({"label": label, "price": round(price, 2)})
+                return tiers
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return []
+        tiers = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "=" in line:
+                label, price_text = line.split("=", 1)
+            elif ":" in line:
+                label, price_text = line.split(":", 1)
+            else:
+                parts = line.rsplit(" ", 1)
+                if len(parts) != 2:
+                    continue
+                label, price_text = parts
+            try:
+                price = float(price_text.replace("$", "").strip())
+            except ValueError:
+                continue
+            label = label.strip()
+            if label and price > 0:
+                tiers.append({"label": label, "price": round(price, 2)})
+        return tiers
+    return []
+
+
+def serialize_tier_prices(raw_value):
+    tiers = parse_tier_prices(raw_value)
+    return json.dumps(tiers, separators=(",", ":")) if tiers else ""
+
+
+def product_tier_prices(product):
+    try:
+        return parse_tier_prices(product["tier_prices"])
+    except (KeyError, IndexError):
+        return []
+
+
+def product_display_price(product):
+    tiers = product_tier_prices(product)
+    if tiers:
+        low = min(tier["price"] for tier in tiers)
+        high = max(tier["price"] for tier in tiers)
+        if low != high:
+            return f"From {format_money(low)}"
+        return format_money(low)
+    return format_money(product["price"])
+
+
+def product_metadata_items(product):
+    fields = [
+        ("THC", product["thc_content"] if "thc_content" in product.keys() else ""),
+        ("CBD", product["cbd_content"] if "cbd_content" in product.keys() else ""),
+        ("Servings", product["servings"] if "servings" in product.keys() else ""),
+        ("Net Weight", product["net_weight"] if "net_weight" in product.keys() else ""),
+        ("Package ID", product["package_id"] if "package_id" in product.keys() else ""),
+    ]
+    return [(label, str(value).strip()) for label, value in fields if str(value or "").strip()]
+
+
+def render_tier_price_list(product):
+    tiers = product_tier_prices(product)
+    if not tiers:
+        return ""
+    rows = "".join(
+        f"<div class='tier-price-row'><span>{html.escape(tier['label'])}</span><strong>{format_money(tier['price'])}</strong></div>"
+        for tier in tiers
+    )
+    return f"<div class='tier-price-list'><span class='eyebrow'>Tier Pricing</span>{rows}</div>"
+
+
+def render_product_rating_summary(stats):
+    count = int(stats.get("count", 0) or 0)
+    average = float(stats.get("average", 0) or 0)
+    stars = "".join("★" if index <= round(average) else "☆" for index in range(1, 6))
+    label = f"{average:.1f} ({count})" if count else "No reviews yet"
+    return f"<div class='product-rating-summary' aria-label='{html.escape(label)}'><span>{stars}</span><strong>{html.escape(label)}</strong></div>"
+
+
+def product_review_stats_map(connection):
+    rows = connection.execute(
+        """
+        SELECT product_id, COUNT(*) AS count, COALESCE(AVG(rating), 0) AS average
+        FROM product_reviews
+        GROUP BY product_id
+        """
+    ).fetchall()
+    return {row["product_id"]: {"count": row["count"], "average": row["average"]} for row in rows}
+
+
+def product_reviews_map(connection, product_ids):
+    if not product_ids:
+        return {}
+    placeholders = ",".join("?" for _ in product_ids)
+    rows = connection.execute(
+        f"""
+        SELECT product_reviews.*, users.name AS user_name
+        FROM product_reviews
+        JOIN users ON users.id = product_reviews.user_id
+        WHERE product_reviews.product_id IN ({placeholders})
+        ORDER BY product_reviews.created_at DESC
+        """,
+        tuple(product_ids),
+    ).fetchall()
+    grouped = {product_id: [] for product_id in product_ids}
+    for row in rows:
+        grouped.setdefault(row["product_id"], []).append(row)
+    return grouped
+
+
+def reviewable_ticket_for_product(connection, user, product_id):
+    if not user or user["role"] != "client":
+        return None
+    return connection.execute(
+        """
+        SELECT tickets.id, tickets.ticket_number
+        FROM tickets
+        JOIN ticket_items ON ticket_items.ticket_id = tickets.id
+        LEFT JOIN product_reviews
+          ON product_reviews.product_id = ticket_items.product_id
+         AND product_reviews.user_id = tickets.client_id
+         AND product_reviews.ticket_id = tickets.id
+        WHERE tickets.client_id = ?
+          AND tickets.status = 'DELIVERED'
+          AND ticket_items.product_id = ?
+          AND product_reviews.id IS NULL
+        ORDER BY tickets.updated_at DESC
+        LIMIT 1
+        """,
+        (user["id"], product_id),
+    ).fetchone()
+
+
+def render_product_detail_extra(connection, product, user, stats, reviews):
+    meta_items = product_metadata_items(product)
+    meta_markup = "".join(
+        f"<div class='product-detail-meta'><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>"
+        for label, value in meta_items
+    )
+    review_rows = "".join(
+        f"""
+        <article class="product-review">
+          <div>{render_product_rating_summary({"average": review["rating"], "count": 1})}<span class="verified-purchase">Verified purchase</span></div>
+          <p>{html.escape(review["review_text"] or "No written note.")}</p>
+          <small>{html.escape(review["user_name"] or "Customer")} | {html.escape(review["created_at"])}</small>
+        </article>
+        """
+        for review in reviews[:4]
+    )
+    reviewable_ticket = reviewable_ticket_for_product(connection, user, product["id"])
+    review_form = ""
+    if reviewable_ticket:
+        review_form = f"""
+        <form method="post" action="/reviews/create" class="product-review-form">
+          <input type="hidden" name="product_id" value="{product['id']}">
+          <input type="hidden" name="ticket_id" value="{reviewable_ticket['id']}">
+          <input type="hidden" name="return_to" value="/menu">
+          <label>Rating
+            <select name="rating" required>
+              <option value="5">5 stars</option>
+              <option value="4">4 stars</option>
+              <option value="3">3 stars</option>
+              <option value="2">2 stars</option>
+              <option value="1">1 star</option>
+            </select>
+          </label>
+          <label>Review<textarea name="review_text" maxlength="700" placeholder="How was this product?"></textarea></label>
+          <button type="submit">Submit Verified Review</button>
+        </form>
+        """
+    return f"""
+    <template id="product-detail-extra-{product['id']}">
+      <div class="product-detail-extra">
+        {f'<div class="product-detail-meta-grid">{meta_markup}</div>' if meta_markup else '<p class="subtle">No extra product details have been added yet.</p>'}
+        {render_tier_price_list(product)}
+        <section class="product-review-panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">Customer Rating</span>
+              {render_product_rating_summary(stats)}
+            </div>
+          </div>
+          <div class="product-review-list">{review_rows or '<p class="subtle">No verified reviews yet.</p>'}</div>
+          {review_form}
+        </section>
+      </div>
+    </template>
+    """
 
 
 def is_double_stuffed_product(product):
@@ -2302,6 +2530,12 @@ def init_db():
                 stock INTEGER NOT NULL,
                 menu_group TEXT NOT NULL DEFAULT '',
                 strain_type TEXT NOT NULL DEFAULT '',
+                thc_content TEXT NOT NULL DEFAULT '',
+                cbd_content TEXT NOT NULL DEFAULT '',
+                servings TEXT NOT NULL DEFAULT '',
+                net_weight TEXT NOT NULL DEFAULT '',
+                package_id TEXT NOT NULL DEFAULT '',
+                tier_prices TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
 
@@ -2389,6 +2623,20 @@ def init_db():
                 locked_price REAL NOT NULL,
                 FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS product_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                ticket_id INTEGER NOT NULL,
+                rating INTEGER NOT NULL,
+                review_text TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(product_id, user_id, ticket_id),
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS support_tickets (
@@ -2544,6 +2792,12 @@ def init_db():
         ensure_column(connection, "products", "leafly_strain_name TEXT")
         ensure_column(connection, "products", "menu_group TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "products", "strain_type TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "thc_content TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "cbd_content TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "servings TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "net_weight TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "package_id TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "products", "tier_prices TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "leafly_strains", "thc_percent TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "leafly_strains", "cbd_percent TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "leafly_strains", "dominant_terpene TEXT NOT NULL DEFAULT ''")
@@ -3105,6 +3359,7 @@ def render_product_detail_modal():
               <span>Stock</span>
               <strong id="product-detail-stock">0 available</strong>
             </div>
+            <div id="product-detail-extra"></div>
             <button type="button" class="button ghost" id="product-detail-lab-button">Open Lab Analysis</button>
           </div>
         </div>
@@ -3184,6 +3439,7 @@ def render_menu_interaction_script():
         var strain = document.getElementById('product-detail-strain');
         var description = document.getElementById('product-detail-description');
         var stock = document.getElementById('product-detail-stock');
+        var extra = document.getElementById('product-detail-extra');
         var labButton = document.getElementById('product-detail-lab-button');
         var activeLabTrigger = null;
 
@@ -3204,6 +3460,10 @@ def render_menu_interaction_script():
             strain.textContent = button.dataset.productStrain || 'Unspecified';
             description.textContent = button.dataset.productDescription || '';
             stock.textContent = (button.dataset.productStock || '0') + ' available';
+            if (extra) {
+              var template = document.getElementById('product-detail-extra-' + button.dataset.productId);
+              extra.innerHTML = template ? template.innerHTML : '';
+            }
             activeLabTrigger = document.querySelector('[data-open-lab-analysis][data-product-id="' + button.dataset.productId + '"]');
             labButton.classList.toggle('is-hidden', !activeLabTrigger);
             detailModal.classList.remove('is-hidden');
@@ -3406,7 +3666,6 @@ def page(title, body, user=None, message=None, level="info", cart_count=0, auto_
   </footer>
   {render_age_gate()}
   {extra_shell}
-  {render_budtender_widget()}
   {render_help_button(user)}
   {render_site_console_capture()}
 </body>
@@ -3498,7 +3757,6 @@ def landing_page(title, body, user=None, message=None, level="info", cart_count=
   </footer>
   {render_age_gate()}
   {extra_shell}
-  {render_budtender_widget()}
   {render_help_button(user)}
   {render_site_console_capture()}
   <script>
@@ -3656,7 +3914,6 @@ def dashboard_page(title, body, user=None, message=None, level="info", cart_coun
   </div>
   {render_age_gate()}
   {extra_shell}
-  {render_budtender_widget()}
   {render_site_console_capture()}
   <script>
     (function () {{
@@ -5369,6 +5626,12 @@ def render_admin_creation_widgets(leafly_strains, coupons, products):
           </label>
           <label>Price<input type="number" name="price" min="0.01" step="0.01" required></label>
           <label>Stock<input type="number" name="stock" min="0" required></label>
+          <label>THC<input type="text" name="thc_content" placeholder="Example: 28% or 100mg"></label>
+          <label>CBD<input type="text" name="cbd_content" placeholder="Example: 0.8% or 10mg"></label>
+          <label>Servings<input type="text" name="servings" placeholder="Example: 10 servings"></label>
+          <label>Net Weight<input type="text" name="net_weight" placeholder="Example: 3.5g, 1 oz, 100ml"></label>
+          <label>Package ID<input type="text" name="package_id" placeholder="Optional package or batch code"></label>
+          <label>Tier Pricing<textarea name="tier_prices" placeholder="One per line, like:&#10;1g = 10&#10;1/8 oz = 35&#10;1 oz = 180"></textarea></label>
           <label>Description<textarea name="description" required></textarea></label>
           <button type="submit">Create Menu Item</button>
         </form>
@@ -5617,6 +5880,49 @@ def render_item_list(items):
         f"<div class='item-pill'><strong>{html.escape(item['product_name'])}</strong><span>{item['quantity']} x {format_money(item['locked_price'])}</span></div>"
         for item in items
     ) + "</div>"
+
+
+def render_ticket_review_forms(connection, user, ticket, items):
+    if not user or user["role"] != "client" or ticket["status"] != "DELIVERED":
+        return ""
+    forms = []
+    for item in items:
+        existing = connection.execute(
+            "SELECT id FROM product_reviews WHERE product_id = ? AND user_id = ? AND ticket_id = ?",
+            (item["product_id"], user["id"], ticket["id"]),
+        ).fetchone()
+        if existing:
+            forms.append(f"<div class='item-pill'><strong>{html.escape(item['product_name'])}</strong><span>Reviewed</span></div>")
+            continue
+        forms.append(
+            f"""
+            <form method="post" action="/reviews/create" class="product-review-form">
+              <input type="hidden" name="product_id" value="{item['product_id']}">
+              <input type="hidden" name="ticket_id" value="{ticket['id']}">
+              <input type="hidden" name="return_to" value="/dashboard?open_ticket={ticket['id']}">
+              <strong>{html.escape(item['product_name'])}</strong>
+              <label>Rating
+                <select name="rating" required>
+                  <option value="5">5 stars</option>
+                  <option value="4">4 stars</option>
+                  <option value="3">3 stars</option>
+                  <option value="2">2 stars</option>
+                  <option value="1">1 star</option>
+                </select>
+              </label>
+              <label>Review<textarea name="review_text" maxlength="700" placeholder="Optional note"></textarea></label>
+              <button type="submit">Submit Verified Review</button>
+            </form>
+            """
+        )
+    if not forms:
+        return ""
+    return f"""
+    <section class="product-review-panel">
+      <div class="panel-head"><div><span class="eyebrow">Verified Reviews</span><h3>Review Delivered Items</h3></div></div>
+      <div class="product-review-list">{''.join(forms)}</div>
+    </section>
+    """
 
 
 def generate_ticket_number(connection):
@@ -6043,6 +6349,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         """
     ).fetchall()
     cart_count = client_cart_count(connection, user["id"]) if user and user["role"] == "client" else 0
+    review_stats = product_review_stats_map(connection)
+    review_map = product_reviews_map(connection, [product["id"] for product in products])
     cards = []
     visible_products = 0
     for product in products:
@@ -6077,6 +6385,8 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         product_image = product_image_proxy_url(product['image_url'], product['source_url'] or '')
         product_is_new = "true" if is_new_product(product) else "false"
         product_is_deal = "true" if is_deal_product(product) else "false"
+        stats = review_stats.get(product["id"], {"count": 0, "average": 0})
+        extra_template = render_product_detail_extra(connection, product, user, stats, review_map.get(product["id"], []))
         cards.append(
             f"""
             <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
@@ -6086,15 +6396,18 @@ def render_store_page(connection, user=None, message=None, level="info", filters
                 <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
                 <h3>{html.escape(product["name"])}</h3>
                 <div class="product-meta-pills">
-                  <span class="price-pill">{format_money(product["price"])}</span>
+                  <span class="price-pill">{html.escape(product_display_price(product))}</span>
                   {f"<span class='strain-pill'>{html.escape(product_strain)}</span>" if product["category"] in {"Flower", "Concentrates"} else ""}
                   {f"<span class='strain-pill'>{html.escape(product['menu_group'])}</span>" if product["menu_group"] else ""}
                 </div>
               </div>
+              {render_product_rating_summary(stats)}
               <p>{html.escape(product["description"])}</p>
+              {render_tier_price_list(product)}
               {render_lab_analysis_button(product, product_strain)}
-              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(format_money(product['price']))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
+              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(product_display_price(product))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
               <div class="product-card-bottom">{action}</div>
+              {extra_template}
             </article>
             """
         )
@@ -6406,6 +6719,8 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         """
     ).fetchall()
     cart_count = client_cart_count(connection, user["id"]) if user and user["role"] == "client" else 0
+    review_stats = product_review_stats_map(connection)
+    review_map = product_reviews_map(connection, [product["id"] for product in products])
     cards = []
     visible_products = 0
     for product in products:
@@ -6440,6 +6755,8 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         product_image = product_image_proxy_url(product['image_url'], product['source_url'] or '')
         product_is_new = "true" if is_new_product(product) else "false"
         product_is_deal = "true" if is_deal_product(product) else "false"
+        stats = review_stats.get(product["id"], {"count": 0, "average": 0})
+        extra_template = render_product_detail_extra(connection, product, user, stats, review_map.get(product["id"], []))
         cards.append(
             f"""
             <article class="product-card fall-into-place{' is-hidden' if not matches_filters else ''}" data-category="{html.escape(product['category'])}" data-strain="{html.escape(product_strain)}" data-name="{html.escape(str(product['name']).lower())}" data-new="{product_is_new}" data-deal="{product_is_deal}">
@@ -6449,15 +6766,18 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
                 <span class="eyebrow">{html.escape(card_label)} | In Stock: {product["stock"]}</span>
                 <h3>{html.escape(product["name"])}</h3>
                 <div class="product-meta-pills">
-                  <span class="price-pill">{format_money(product["price"])}</span>
+                  <span class="price-pill">{html.escape(product_display_price(product))}</span>
                   {f"<span class='strain-pill'>{html.escape(product_strain)}</span>" if product["category"] in {"Flower", "Concentrates"} else ""}
                   {f"<span class='strain-pill'>{html.escape(product['menu_group'])}</span>" if product["menu_group"] else ""}
                 </div>
               </div>
+              {render_product_rating_summary(stats)}
               <p>{html.escape(product["description"])}</p>
+              {render_tier_price_list(product)}
               {render_lab_analysis_button(product, product_strain)}
-              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(format_money(product['price']))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
+              <button type="button" class="button ghost product-detail-button" data-open-product-detail="yes" data-product-id="{product['id']}" data-product-name="{html.escape(product['name'])}" data-product-description="{html.escape(product['description'])}" data-product-price="{html.escape(product_display_price(product))}" data-product-stock="{product['stock']}" data-product-category="{html.escape(product['category'])}" data-product-strain="{html.escape(product_strain)}" data-product-image="{html.escape(product_image)}">View Details</button>
               <div class="product-card-bottom">{action}</div>
+              {extra_template}
             </article>
             """
         )
@@ -6704,7 +7024,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
             level=level,
             cart_count=cart_count,
             active_section="menu",
-            extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell(),
+            extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell() + render_budtender_widget(),
         )
     return page(
         f"{APP_NAME} Menu",
@@ -6713,7 +7033,7 @@ def render_menu_page(connection, user=None, message=None, level="info", filters=
         message=message,
         level=level,
         cart_count=cart_count,
-        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell(),
+        extra_shell=render_client_stats_widget(connection, user) + render_client_activity_widget(connection, user) + render_menu_overlay_shell() + render_budtender_widget(),
     )
 
 
@@ -6808,6 +7128,7 @@ def render_client_dashboard(connection, user, message=None, level="info", open_t
         {render_payment_instructions(ticket)}
         {f"<div class='map-panel'><a class='button ghost' href='{html.escape(maps_link)}' target='_blank' rel='noopener noreferrer'>Open in Google Maps</a><iframe class='address-embed order-map' src='{html.escape(maps_embed)}' loading='lazy'></iframe></div>" if maps_link and maps_embed else ""}
         {render_item_list(items_map.get(ticket["id"], []))}
+        {render_ticket_review_forms(connection, user, ticket, items_map.get(ticket["id"], []))}
         {render_tracker(ticket["status"])}
         {notes}
         <div class="ticket-actions">
@@ -8000,7 +8321,12 @@ def handle_create_product(environ, start_response, connection, user):
     if selected_leafly and category in {"Flower", "Concentrates"}:
         strain_type = normalize_strain_type(selected_leafly["strain_type"] or strain_type)
     connection.execute(
-        "INSERT INTO products (name, category, description, image_url, source_url, leafly_strain_name, price, stock, menu_group, strain_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        """
+        INSERT INTO products (
+            name, category, description, image_url, source_url, leafly_strain_name, price, stock,
+            menu_group, strain_type, thc_content, cbd_content, servings, net_weight, package_id, tier_prices, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
         (
             data.get("name", ""),
             category,
@@ -8012,6 +8338,12 @@ def handle_create_product(environ, start_response, connection, user):
             int(data.get("stock", "0")),
             data.get("menu_group", "").strip() or menu_group,
             "" if category not in {"Flower", "Concentrates"} else strain_type,
+            data.get("thc_content", "").strip(),
+            data.get("cbd_content", "").strip(),
+            data.get("servings", "").strip(),
+            data.get("net_weight", "").strip(),
+            data.get("package_id", "").strip(),
+            serialize_tier_prices(data.get("tier_prices", "")),
             now_iso(),
         ),
     )
@@ -8041,6 +8373,55 @@ def handle_delete_product(environ, start_response, connection, user):
     log_activity(connection, user, "DELETE_PRODUCT", detail)
     connection.commit()
     return redirect(start_response, "/admin?message=Product deleted")
+
+
+def handle_create_product_review(environ, start_response, connection, user):
+    gate = require_role(start_response, user, {"client"})
+    if gate:
+        return gate
+    data = read_post_data(environ)
+    try:
+        product_id = int(data.get("product_id", "0") or "0")
+        ticket_id = int(data.get("ticket_id", "0") or "0")
+        rating = int(data.get("rating", "0") or "0")
+    except ValueError:
+        return redirect(start_response, "/menu?message=Review details were invalid")
+    return_to = data.get("return_to", "/menu") or "/menu"
+    if rating < 1 or rating > 5:
+        return redirect_with_message(start_response, return_to, "Choose a rating from 1 to 5")
+    verified_ticket = connection.execute(
+        """
+        SELECT tickets.id
+        FROM tickets
+        JOIN ticket_items ON ticket_items.ticket_id = tickets.id
+        WHERE tickets.id = ?
+          AND tickets.client_id = ?
+          AND tickets.status = 'DELIVERED'
+          AND ticket_items.product_id = ?
+        LIMIT 1
+        """,
+        (ticket_id, user["id"], product_id),
+    ).fetchone()
+    if not verified_ticket:
+        return redirect_with_message(start_response, return_to, "Reviews are only available after a delivered purchase")
+    existing = connection.execute(
+        "SELECT id FROM product_reviews WHERE product_id = ? AND user_id = ? AND ticket_id = ?",
+        (product_id, user["id"], ticket_id),
+    ).fetchone()
+    if existing:
+        return redirect_with_message(start_response, return_to, "You already reviewed that delivered item")
+    review_text = data.get("review_text", "").strip()[:700]
+    connection.execute(
+        """
+        INSERT INTO product_reviews (product_id, user_id, ticket_id, rating, review_text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (product_id, user["id"], ticket_id, rating, review_text, now_iso()),
+    )
+    product = connection.execute("SELECT name FROM products WHERE id = ?", (product_id,)).fetchone()
+    log_activity(connection, user, "CREATE_PRODUCT_REVIEW", f"Reviewed {product['name'] if product else 'a menu item'} with {rating} stars.", target_user_id=user["id"])
+    connection.commit()
+    return redirect_with_message(start_response, return_to, "Verified review submitted")
 
 
 def handle_create_coupon(environ, start_response, connection, user):
@@ -9181,6 +9562,8 @@ def application(environ, start_response):
             return handle_create_product(environ, start_response, connection, user)
         if path == "/products/delete" and method == "POST":
             return handle_delete_product(environ, start_response, connection, user)
+        if path == "/reviews/create" and method == "POST":
+            return handle_create_product_review(environ, start_response, connection, user)
         if path == "/coupons/create" and method == "POST":
             return handle_create_coupon(environ, start_response, connection, user)
         if path == "/coupons/delete" and method == "POST":
