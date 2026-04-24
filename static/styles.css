@@ -3119,9 +3119,13 @@ tbody tr:hover {
 .landing-drops-head h2 {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3rem);
-  color: #000000;
+  color: #12b76a;
   font-family: "Fredericka the Great", serif;
   text-transform: uppercase;
+}
+
+.available-now-text {
+  color: #000000;
 }
 
 .landing-section-head-centered {

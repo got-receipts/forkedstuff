@@ -6655,7 +6655,7 @@ def render_store_page(connection, user=None, message=None, level="info", filters
         <div class="landing-drops-head fall-into-place">
           <div>
             <span class="eyebrow">New Drops</span>
-            <h2>Available now!</h2>
+            <h2><span class="available-now-text">Available now!</span></h2>
           </div>
           <a href="{auth_menu_link}">See all</a>
         </div>
